@@ -1,6 +1,6 @@
 // 數值都集中在這裡。改了會影響戰局的東西，就要把 RULES_VERSION 加一，
 // 舊記錄才不會被用新規則硬播。
-export const RULES_VERSION = 1
+export const RULES_VERSION = 2
 
 /** 每秒幾拍 */
 export const TICKS_PER_SECOND = 10
@@ -8,7 +8,8 @@ export const TICKS_PER_SECOND = 10
 export const RULES = {
   /** 每拍累積的產兵量（1000 = 一個兵） */
   prodPerTick: { normal: 100, city: 160 },
-  cap: { normal: 40, city: 70 },
+  /** 兵長到這裡就停（援軍進來可以超過） */
+  cap: { normal: 60, city: 120 },
   /** 中立守軍 */
   neutral: { none: 10, post: 10, granary: 12, fort: 14, city: 30 },
   /** 起點兵力 */
@@ -16,7 +17,7 @@ export const RULES = {
   /** 派兵後的冷卻（拍） */
   cooldownTicks: 40,
   /** 至少要有這麼多兵才能派 */
-  minUnitsToSend: 2,
+  minUnitsToSend: 1,
   /** 一般行軍：每拍走幾公里（×10，避免小數） */
   speedKmPerTickX10: 12,
   /** 山路要走幾倍的時間 */

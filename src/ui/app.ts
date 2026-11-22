@@ -206,7 +206,7 @@ export function startApp(root: HTMLElement): void {
         const r = map.regions[marks.selected]
         say(`${r.name}廳　派出 ${sendAmount(state.regions[marks.selected].units)} 兵`, '拖到目標放開，或直接點目標；再點一次取消。圈起來的區可以直達，其他的會在路上先開打。')
       } else if (inspected >= 0) say(...regionText(inspected, state))
-      else say('從你的區拖到目標，派出一半的兵', '藍色圓形是你。兵會自己長，派兵後那一區要等幾秒才能再派。')
+      else say('從你的區拖到目標，整區的兵都派出去', '藍色圓形是你。兵會自己長，派兵後那一區要等幾秒才能再派。')
     }
 
     // ---- 操作 ----
@@ -463,8 +463,8 @@ export function startApp(root: HTMLElement): void {
     openSlip(h('h2', {}, '玩法'),
       h('p', {}, '地圖是 1901 年的臺灣二十廳，加上後來的花蓮港廳，共 21 區。選一區起家，把其他勢力都趕出去就贏了。'),
       h('ul', {},
-        h('li', {}, '每一區上的數字是兵力。你的區會自己長兵，長到上限為止；中立的區不會長。'),
-        h('li', {}, '從你的區拖到另一區，就派出一半的兵。也可以先點自己的區，再點目標。'),
+        h('li', {}, `每一區上的數字是兵力。你的區會自己長兵，長到 ${RULES.cap.normal}（大城 ${RULES.cap.city}）為止；中立的區不會長。`),
+        h('li', {}, '從你的區拖到另一區，那一區的兵就全部派出去。也可以先點自己的區，再點目標。'),
         h('li', {}, '兵沿著相鄰的區走，會自己找路，拉線時看得到路線。路上第一個不是你的區，就是開打的地方。'),
         h('li', {}, '到了別人的區就開打，一兵換一兵；打贏了，剩下的兵留下來佔領。'),
         h('li', {}, `派兵後，那一區要等 ${RULES.cooldownTicks / TICKS_PER_SECOND} 秒才能再派。`),

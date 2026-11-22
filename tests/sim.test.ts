@@ -38,29 +38,29 @@ describe('生產', () => {
     s.regions[id('新竹')].units = 30
     expect(issue(s, map, g, id('新竹'), id('苗栗'))).toBe(true)
     run(s, 100)
-    expect(s.regions[id('苗栗')].units).toBe(capOf(map, id('苗栗')) + 15)
+    expect(s.regions[id('苗栗')].units).toBe(capOf(map, id('苗栗')) + 30)
   })
 })
 
 describe('派兵', () => {
-  it('派出一半，之後進入冷卻', () => {
+  it('整區的兵都派出去，之後進入冷卻', () => {
     const s = createGame(map, { players: 2, starts: [id('苗栗'), id('阿猴')] })
-    expect(sendAmount(21)).toBe(10)
+    expect(sendAmount(21)).toBe(21)
     expect(issue(s, map, g, id('苗栗'), id('新竹'))).toBe(true)
-    expect(s.regions[id('苗栗')].units).toBe(10)
+    expect(s.regions[id('苗栗')].units).toBe(0)
     expect(s.armies).toHaveLength(1)
-    expect(s.armies[0]).toMatchObject({ owner: 1, units: 10 })
+    expect(s.armies[0]).toMatchObject({ owner: 1, units: RULES.startUnits })
     expect(canSend(s, id('苗栗'))).toBe(false)
     expect(issue(s, map, g, id('苗栗'), id('新竹'))).toBe(false)
     run(s, RULES.cooldownTicks)
     expect(canSend(s, id('苗栗'))).toBe(true)
   })
 
-  it('不能從中立或兵太少的區派兵，也不能派給自己', () => {
+  it('不能從中立或沒有兵的區派兵，也不能派給自己', () => {
     const s = createGame(map, { players: 2, starts: [id('苗栗'), id('阿猴')] })
     expect(issue(s, map, g, id('新竹'), id('苗栗'))).toBe(false)
     expect(issue(s, map, g, id('苗栗'), id('苗栗'))).toBe(false)
-    s.regions[id('苗栗')].units = 1
+    s.regions[id('苗栗')].units = 0
     expect(issue(s, map, g, id('苗栗'), id('新竹'))).toBe(false)
   })
 
@@ -118,12 +118,12 @@ describe('行軍與交戰', () => {
     issue(s, map, g, id('苗栗'), id('新竹'))
     run(s, link('苗栗', '新竹').ticks)
     expect(s.armies).toHaveLength(0)
-    expect(s.regions[id('新竹')]).toMatchObject({ owner: 1, units: 15 - RULES.neutral.post })
+    expect(s.regions[id('新竹')]).toMatchObject({ owner: 1, units: 30 - RULES.neutral.post })
   })
 
   it('兵力不夠（或剛好打平）就只是削弱守軍', () => {
     const s = createGame(map, { players: 2, starts: [id('苗栗'), id('阿猴')] })
-    s.regions[id('苗栗')].units = 20
+    s.regions[id('苗栗')].units = RULES.neutral.post
     issue(s, map, g, id('苗栗'), id('新竹'))
     run(s, link('苗栗', '新竹').ticks)
     expect(s.regions[id('新竹')]).toMatchObject({ owner: 0, units: 0 })
@@ -143,7 +143,7 @@ describe('行軍與交戰', () => {
       run(s, 60)
     }
     take('臺中', 40)
-    expect(s.regions[id('彰化')]).toMatchObject({ owner: 1, units: 20 - RULES.neutral.granary + RULES.granaryBonus + 3 })
+    expect(s.regions[id('彰化')]).toMatchObject({ owner: 1, units: 40 - RULES.neutral.granary + RULES.granaryBonus + 3 })
     s.regions[id('彰化')].units = 5
     take('斗六', 40)
     expect(s.regions[id('彰化')].owner).toBe(2)
@@ -166,7 +166,7 @@ describe('行軍與交戰', () => {
     expect(s.armies).toHaveLength(0)
     // 守軍 5，行軍期間對手又長了幾個兵
     const grown = Math.floor((link('苗栗', '新竹').ticks * RULES.prodPerTick.normal) / 1000)
-    expect(s.regions[id('新竹')]).toMatchObject({ owner: 1, units: 20 - 5 - grown })
+    expect(s.regions[id('新竹')]).toMatchObject({ owner: 1, units: 40 - 5 - grown })
     expect(s.regions[id('桃仔園')].owner).toBe(0)
   })
 })

@@ -26,8 +26,8 @@ export function createGame(map: MapData, setup: Setup): GameState {
 export const isCity = (map: MapData, r: number) => map.regions[r].trait === 'city'
 export const capOf = (map: MapData, r: number) => (isCity(map, r) ? RULES.cap.city : RULES.cap.normal)
 export const prodOf = (map: MapData, r: number) => (isCity(map, r) ? RULES.prodPerTick.city : RULES.prodPerTick.normal)
-/** 這次派兵會派出幾個 */
-export const sendAmount = (units: number) => Math.floor(units / 2)
+/** 這次派兵會派出幾個：整區的兵都走 */
+export const sendAmount = (units: number) => units
 /** 進攻 r 區時，n 個兵實際算幾個 */
 export const attackStrength = (map: MapData, r: number, n: number) =>
   map.regions[r].trait === 'fort' ? Math.floor((n * RULES.fortNum) / RULES.fortDen) : n
@@ -38,7 +38,7 @@ export function canSend(state: GameState, from: number): boolean {
 }
 
 /**
- * 下指令：從 from 派一半的兵到 to。成功回傳 true。
+ * 下指令：把 from 的兵全部派到 to。成功回傳 true。
  * 派兵的人就是 from 現在的主人，所以指令本身不用記是誰下的。
  * to 可以是任何一區：到不了的遠處，軍隊會沿路走到第一個不是自己的區開打。
  */

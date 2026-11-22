@@ -1,6 +1,6 @@
 // 地圖畫面：一張 SVG。只負責把狀態畫出來、回答「這個位置是哪一區」，不管規則。
 import { RULES } from '../sim/rules'
-import type { GameState, MapData, PlayerId } from '../sim/types'
+import type { Clash, GameState, MapData, PlayerId } from '../sim/types'
 import { s } from './dom'
 import { shapePath, SIDES, textShift, TRAITS } from './theme'
 
@@ -30,6 +30,8 @@ export interface Marks {
 interface NodeEls {
   g: SVGGElement
   shape: SVGPathElement
+  /** 墊在據點底下的紙色底：冷卻時據點變淡，也不會透出底下經過的兵 */
+  back: SVGPathElement
   units: SVGTextElement
   ring: SVGCircleElement
   halo: SVGCircleElement
@@ -38,7 +40,34 @@ interface NodeEls {
   ringOn: boolean
   cls: string
 }
-interface ArmyEls { g: SVGGElement; text: SVGTextElement; units: number }
+/** 路上的軍隊：小點的半徑、同一排的間距、前後排的間距 */
+const DOT = 4.2
+const DOT_GAP = 10
+const ROW_GAP = 10
+/** 幾個兵畫幾個點：大約三個兵一個點，最多 24 個 */
+export const dotsFor = (units: number) => Math.max(1, Math.min(24, Math.ceil(units / 3)))
+
+interface RowEls { g: SVGGElement; dots: SVGPathElement[]; key: number; shown: boolean }
+interface ArmyEls {
+  g: SVGGElement
+  text: SVGTextElement
+  rows: RowEls[]
+  owner: number
+  units: number
+  dots: number
+  /** 正在走的那一段路（from → to）與上一段的起點（沒有是 -1），長度是地圖單位 */
+  from: number
+  to: number
+  prev: number
+  len: number
+  prevLen: number
+  /** 最後一次畫的時候：最前面一排離 from 多遠、是第幾拍、每拍走多遠 */
+  s: number
+  time: number
+  speed: number
+  /** 規則裡已經抵達，畫面上後面幾排還在走進去 */
+  ghost: boolean
+}
 
 export class MapView {
   readonly svg: SVGSVGElement
@@ -47,6 +76,7 @@ export class MapView {
   private readonly nodes: NodeEls[] = []
   private readonly armyLayer: SVGGElement
   private readonly armies = new Map<number, ArmyEls>()
+  private sparkTick = -1
   private readonly aim: SVGPolylineElement
   private readonly aimRest: SVGPolylineElement
 
@@ -102,9 +132,10 @@ export class MapView {
       const halo = s('circle', { r: R + 9, class: 'halo' })
       const ring = s('circle', { r: R + 4.5, class: 'cooldown', pathLength: 100, transform: 'rotate(-90)', visibility: 'hidden' })
       const shape = s('path', { class: 'stamp' })
+      const back = s('path', { class: 'stamp-back' })
       const units = s('text', { class: 'units' })
-      g.append(halo, ring, shape, units, this.label(r.name, TRAITS[r.trait]?.mark, r.y + R + LABEL + 12 > H - 12))
-      this.nodes.push({ g, shape, units, ring, halo, owner: -1, shown: -1, ringOn: false, cls: '' })
+      g.append(halo, ring, back, shape, units, this.label(r.name, TRAITS[r.trait]?.mark, r.y + R + LABEL + 12 > H - 12))
+      this.nodes.push({ g, shape, back, units, ring, halo, owner: -1, shown: -1, ringOn: false, cls: '' })
       nodeLayer.append(g)
     }
     this.svg.append(this.aimRest, this.aim, this.armyLayer, nodeLayer)
@@ -178,6 +209,7 @@ export class MapView {
         const first = n.owner < 0
         n.owner = r.owner
         n.shape.setAttribute('d', shapePath(r.owner, R))
+        n.back.setAttribute('d', shapePath(r.owner, R))
         n.shape.style.fill = SIDES[r.owner].color
         n.units.style.fill = SIDES[r.owner].ink
         n.units.setAttribute('y', String(7.5 + textShift(r.owner, R)))
@@ -212,26 +244,127 @@ export class MapView {
       if (dim !== this.landCls[i]) { this.landCls[i] = dim; this.land[i].setAttribute('class', dim) }
     }
 
+    this.renderArmies(state, state.tick + alpha, alpha)
+    if (state.tick !== this.sparkTick) {
+      this.sparkTick = state.tick
+      for (const c of state.clashes) this.spark(c)
+    }
+  }
+
+  /**
+   * 路上的軍隊：一排一排的小點，兵越多點越多。最前面那一排就是軍隊在規則裡的位置，
+   * 後面幾排沿著走過的路跟著；還沒出城的、已經進城的那幾排不畫（藏在據點底下）。
+   */
+  private renderArmies(state: GameState, time: number, alpha: number): void {
+    const regs = this.map.regions
+    const dist = (a: number, b: number) => Math.hypot(regs[b].x - regs[a].x, regs[b].y - regs[a].y)
     const seen = new Set<number>()
     for (const a of state.armies) {
       seen.add(a.id)
       let el = this.armies.get(a.id)
       if (!el) {
         const g = s('g', { class: 'army' })
-        const size = 7 + Math.min(7, Math.sqrt(a.units))
-        const shape = s('path', { d: shapePath(a.owner, size), class: 'army-shape' })
-        shape.style.fill = SIDES[a.owner].color
-        const text = s('text', { class: 'army-units', y: -size - 5 })
-        g.append(shape, text)
-        el = { g, text, units: -1 }
+        const text = s('text', { class: 'army-units' })
+        g.append(text)
+        el = { g, text, rows: [], owner: a.owner, units: -1, dots: 0, from: 0, to: 0, prev: -1, len: 1, prevLen: 1, s: 0, time, speed: 0, ghost: false }
         this.armies.set(a.id, el)
         this.armyLayer.append(g)
       }
-      if (el.units !== a.units) { el.units = a.units; el.text.textContent = String(a.units) }
-      const from = regs[a.path[a.leg]], to = regs[a.path[a.leg + 1]]
-      const f = Math.min(1, (a.t + alpha) / a.legTicks)
-      el.g.setAttribute('transform', `translate(${(from.x + (to.x - from.x) * f).toFixed(1)},${(from.y + (to.y - from.y) * f).toFixed(1)})`)
+      if (el.units !== a.units) {
+        el.units = a.units
+        el.text.textContent = String(a.units)
+        const dots = dotsFor(a.units)
+        if (dots !== el.dots) this.formUp(el, dots)
+      }
+      el.from = a.path[a.leg]
+      el.to = a.path[a.leg + 1]
+      el.prev = a.leg > 0 ? a.path[a.leg - 1] : -1
+      el.len = dist(el.from, el.to)
+      el.prevLen = el.prev >= 0 ? dist(el.prev, el.from) : 1
+      el.speed = el.len / a.legTicks
+      el.s = Math.min(1, (a.t + alpha) / a.legTicks) * el.len
+      el.time = time
+      this.place(el, el.s)
+      const from = regs[el.from], to = regs[el.to], f = el.s / el.len
+      el.text.setAttribute('transform', `translate(${(from.x + (to.x - from.x) * f).toFixed(1)},${(from.y + (to.y - from.y) * f - 13).toFixed(1)})`)
     }
-    for (const [id, el] of this.armies) if (!seen.has(id)) { el.g.remove(); this.armies.delete(id) }
+    for (const [id, el] of this.armies) {
+      if (seen.has(id)) continue
+      if (!el.ghost) {
+        // 快到的時候不見的是進城了，讓後面幾排繼續走進去；半路上不見的是被抵銷掉了
+        const arriving = el.s + 2.5 * el.speed >= el.len
+        if (arriving && el.rows.length > 1) { el.ghost = true; el.text.setAttribute('visibility', 'hidden') }
+      }
+      const head = el.s + (time - el.time) * el.speed
+      // 整隊都進城了，或時間往回跳（重播時拉時間軸），就收掉
+      if (!el.ghost || time < el.time || head - (el.rows.length - 1) * ROW_GAP > el.len) {
+        el.g.remove()
+        this.armies.delete(id)
+      } else this.place(el, head)
+    }
+  }
+
+  /** 照兵力排出幾排小點 */
+  private formUp(el: ArmyEls, dots: number): void {
+    for (const row of el.rows) row.g.remove()
+    el.rows = []
+    el.dots = dots
+    const wide = dots <= 2 ? dots : dots <= 6 ? 2 : dots <= 12 ? 3 : 4
+    for (let left = dots; left > 0; left -= wide) {
+      const g = s('g', { visibility: 'hidden' })
+      const marks: SVGPathElement[] = []
+      for (let k = 0; k < Math.min(wide, left); k++) {
+        const dot = s('path', { d: shapePath(el.owner, DOT), class: 'army-dot' })
+        dot.style.fill = SIDES[el.owner].color
+        marks.push(dot)
+        g.append(dot)
+      }
+      el.rows.push({ g, dots: marks, key: -1, shown: false })
+      el.g.insertBefore(g, el.text)
+    }
+  }
+
+  /** 把一支軍隊的每一排放到路上：最前面一排在離這段路起點 head 的地方，後面每排往回退一格。 */
+  private place(el: ArmyEls, head: number): void {
+    const regs = this.map.regions
+    for (let r = 0; r < el.rows.length; r++) {
+      const row = el.rows[r]
+      let d = head - r * ROW_GAP, from = el.from, to = el.to, len = el.len
+      let show = d <= len
+      if (d < 0) {
+        // 這一排還在上一段路上；沒有上一段，就是還沒出城
+        if (el.prev < 0) show = false
+        else { from = el.prev; to = el.from; len = el.prevLen; d += len; if (d < 0) show = false }
+      }
+      if (show !== row.shown) { row.shown = show; row.g.setAttribute('visibility', show ? 'visible' : 'hidden') }
+      if (!show) continue
+      const a = regs[from], b = regs[to]
+      const ux = (b.x - a.x) / len, uy = (b.y - a.y) / len
+      const key = from * 1024 + to
+      if (row.key !== key) {
+        // 每排排成微微後掠的弧線，像一道浪。點本身不轉，形狀才認得出是哪一方
+        row.key = key
+        row.dots.forEach((dot, k) => {
+          const side = k - (row.dots.length - 1) / 2
+          const back = -1.6 * side * side, across = side * DOT_GAP
+          dot.setAttribute('transform', `translate(${(ux * back - uy * across).toFixed(1)},${(uy * back + ux * across).toFixed(1)})`)
+        })
+      }
+      row.g.setAttribute('transform', `translate(${(a.x + ux * d).toFixed(1)},${(a.y + uy * d).toFixed(1)})`)
+    }
+  }
+
+  /** 兩軍在路上碰頭的地方閃一下 */
+  private spark(c: Clash): void {
+    const a = this.map.regions[c.from], b = this.map.regions[c.to], f = c.t / c.legTicks
+    const size = 7 + Math.min(8, Math.sqrt(c.units) * 1.5)
+    const burst = s('g', { class: 'spark' })
+    for (let i = 0; i < 8; i++) {
+      const x = Math.cos((i * Math.PI) / 4), y = Math.sin((i * Math.PI) / 4)
+      burst.append(s('line', { x1: (x * size * 0.45).toFixed(1), y1: (y * size * 0.45).toFixed(1), x2: (x * size).toFixed(1), y2: (y * size).toFixed(1) }))
+    }
+    const g = s('g', { transform: `translate(${(a.x + (b.x - a.x) * f).toFixed(1)},${(a.y + (b.y - a.y) * f).toFixed(1)})` }, burst)
+    this.armyLayer.append(g)
+    setTimeout(() => g.remove(), 450)
   }
 }

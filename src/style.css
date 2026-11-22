@@ -115,6 +115,7 @@ button.danger { border-color: var(--seal); color: var(--seal); }
 .subtitle { font-size: 16px; fill: var(--ink-soft); }
 
 .stamp { stroke: var(--ink); stroke-width: 1.6; stroke-linejoin: round; transform-box: fill-box; transform-origin: center; }
+.stamp-back { fill: var(--paper); }
 .units { font-family: var(--digits); font-weight: 700; font-size: 21px; text-anchor: middle; pointer-events: none; }
 .label { pointer-events: none; }
 .name { font-size: 17px; font-weight: 700; text-anchor: middle; fill: var(--ink); paint-order: stroke; stroke: var(--paper); stroke-width: 3.5; stroke-linejoin: round; }
@@ -132,7 +133,10 @@ button.danger { border-color: var(--seal); color: var(--seal); }
 .aim.ok { stroke: var(--ink); stroke-width: 4.5; stroke-dasharray: none; }
 .aim-rest { opacity: 0.7; }
 .army { pointer-events: none; }
-.army-shape { stroke: var(--ink); stroke-width: 1.2; }
+.army-dot { stroke: var(--ink); stroke-width: 1; }
+.spark { transform-origin: 0 0; animation: spark 0.45s ease-out forwards; }
+.spark line { stroke: var(--seal); stroke-width: 2.4; stroke-linecap: round; }
+@keyframes spark { 0% { opacity: 1; transform: scale(0.35); } 60% { opacity: 1; } 100% { opacity: 0; transform: scale(1.35); } }
 .army-units { font-family: var(--digits); font-weight: 700; font-size: 15px; text-anchor: middle; fill: var(--ink); paint-order: stroke; stroke: var(--paper); stroke-width: 3; }
 .taken { animation: taken 0.45s ease-out; }
 @keyframes taken { 0% { transform: scale(1.7); } 100% { transform: scale(1); } }
@@ -192,7 +196,7 @@ button.danger { border-color: var(--seal); color: var(--seal); }
 .chart .tip b { color: var(--ink); font-family: var(--digits); }
 
 @media (prefers-reduced-motion: reduce) {
-  .taken { animation: none; }
+  .taken, .spark { animation: none; }
   .land, .forces .seg { transition: none; }
 }
 

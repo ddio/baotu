@@ -463,8 +463,16 @@ export function startApp(root: HTMLElement): void {
     view.useRules(replay.engine.view)
 
     const forces = forcesBar(rec.config.players)
-    bar.replaceChildren(forces.el, h('button', { class: 'small', onclick: () => showRecords() }, '離開重播'))
     const total = rec.ticks
+    const startName = replay.map.regions[rec.config.starts[0]].name
+    // 分享這一局的開局。網址帶的是現在這張地圖的版本，改版前的地圖開不出同一局，就不給分享
+    const took = clock(total / TICKS_PER_SECOND)
+    const setup = `從${startName}廳起家，對 ${rec.config.players - 1} 家，難度${DIFFICULTY[rec.config.difficulty]}`
+    const [share, shared] = oldMap ? [] : shareOpening(rec.config, rec.config.human
+      ? `我在「堡圖」${setup}，${rec.result === 'win' ? `${took} 拿下全島` : rec.result === 'lose' ? `撐了 ${took}` : `打了 ${took}`}。同一個開局，換你試試。`
+      : `「堡圖」的一個開局：${setup}。`)
+    if (share) share.className = 'small'
+    bar.replaceChildren(forces.el, share ?? '', h('button', { class: 'small', onclick: () => showRecords() }, '離開重播'))
     const toggle = h('button', { class: 'small', onclick: () => {
       if (replay.done) replay.seek(0)
       playing = !playing
@@ -474,10 +482,9 @@ export function startApp(root: HTMLElement): void {
     const slider = h('input', { type: 'range', min: '0', max: String(total), step: '1', 'aria-label': '時間軸' })
     const time = h('span', { class: 'digits' })
     slider.addEventListener('input', () => { playing = false; replay.seek(Number(slider.value)); acc = 0; sync() })
-    const startName = replay.map.regions[rec.config.starts[0]].name
     const then = [old ? `規則 v${rec.rulesVersion}` : '', oldMap ? '改版前的地圖' : ''].filter(Boolean).join('、')
     panel.replaceChildren(
-      h('div', { class: 'body' }, `${when(rec)}　從${startName}廳起家，${RESULT[rec.result]}。${then ? `當時是${then}，跟現在的玩法說明不完全一樣。` : ''}${replay.faithful ? '' : '這筆記錄重跑出來的結果和當時不一樣。'}`),
+      h('div', { class: 'body' }, `${when(rec)}　從${startName}廳起家，${RESULT[rec.result]}。${then ? `當時是${then}，跟現在的玩法說明不完全一樣。` : ''}${replay.faithful ? '' : '這筆記錄重跑出來的結果和當時不一樣。'}`, shared ?? ''),
       h('div', { class: 'row' }, toggle, speedBtn, slider, time))
     const sync = () => {
       toggle.textContent = playing && !replay.done ? '暫停' : replay.done ? '從頭播' : '播放'

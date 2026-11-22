@@ -1,13 +1,15 @@
-// 1901 年二十廳＋1909 年花蓮港廳：以現代鄉鎮歸併的對照表。
+// 1901 年二十廳＋1909 年花蓮港廳，再把紅頭嶼（蘭嶼）從臺東分出來：以現代鄉鎮歸併的對照表。
 // 依據與推定的地方見 README「地圖與出處」。
 const W = (s) => s.split(/\s+/).filter(Boolean)
 
 export const MAP_ID = 'taiwan1901'
 export const MAP_NAME = '臺灣二十廳（1901）'
-export const MAP_VERSION = 1
+// 改這個檔之前先 npm run freeze:map 把現在這一版留下來，改完版本加一
+export const MAP_VERSION = 2
 
 // 每區：id、名稱、今天大致是哪裡、特色、據點經緯度（約在廳治，太擠的地方挪開）
 // towns：{ 縣市: [鄉鎮…] }，'*' 表示該縣市沒有被別區點名的其餘鄉鎮
+// 新的區只能加在最後面：記錄裡存的是區的編號
 export const REGIONS = [
   { id: 'taipei', name: '臺北', today: '臺北市、板橋、新莊、淡水一帶', trait: 'city', node: [121.47, 25.1],
     towns: { 台北市: W('大安區 信義區 萬華區 中正區 南港區 松山區 大同區 中山區 內湖區 士林區 北投區'),
@@ -43,6 +45,8 @@ export const REGIONS = [
   { id: 'taitung', name: '臺東', today: '臺東縣', trait: 'post', node: [121.1, 22.8], towns: { 台東縣: ['*'] } },
   { id: 'hualien', name: '花蓮港', today: '花蓮縣', trait: 'none', node: [121.5, 23.83], towns: { 花蓮縣: ['*'] } },
   { id: 'penghu', name: '澎湖', today: '澎湖縣', trait: 'fort', node: [119.6, 23.58], towns: { 澎湖縣: ['*'] } },
+  // 當時屬臺東廳。島照實際大小畫，比據點的圖記還小；綠島（火燒島）留在臺東
+  { id: 'hongtou', name: '紅頭嶼', today: '蘭嶼', trait: 'none', node: [121.55, 22.045], towns: { 台東縣: ['蘭嶼鄉'] } },
 ]
 
 // 翻越中央山脈的連線一律是山路
@@ -51,8 +55,17 @@ export const MOUNTAIN = [
   ['yilan', 'hsinchu'], ['yilan', 'taichung'], ['yilan', 'taoyuan'],
   ['hualien', 'nantou'], ['taitung', 'fanshuliao'], ['taitung', 'ahou'],
 ]
-// 航線
-export const SEA = [['penghu', 'yanshui'], ['penghu', 'tainan'], ['penghu', 'fengshan']]
+// 航線：兩個據點之間的直線
+export const SEA = [
+  ['penghu', 'yanshui'], ['penghu', 'tainan'], ['penghu', 'fengshan'],
+  ['hongtou', 'taitung'], ['hongtou', 'hengchun'],
+]
+// 險航線：走得比一般航線慢（倍數在 src/sim/rules.ts 的 roughFactor）。
+// via 是從 ends[0] 到 ends[1] 中間依序經過的經緯度，產生地圖時會接成一條平滑的線。
+// 澎湖—臺北：沿著西海岸外海往北，從淡水河口進臺北。參考 1897 年的命令航路（基隆—淡水—澎湖—安平—打狗）。
+export const ROUGH = [
+  { ends: ['penghu', 'taipei'], via: [[120.2, 24.0], [120.47, 24.45], [120.78, 24.85], [121.05, 25.12], [121.36, 25.2]] },
+]
 
 // 畫面：澎湖往本島靠近（經度），好讓直式手機放得下
 export const SHIFT = { penghu: [0.25, 0] }

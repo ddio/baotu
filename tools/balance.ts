@@ -19,7 +19,8 @@ function series(me: Difficulty, them: Difficulty, players: number, games = 120) 
   const secs: number[] = []
   for (let seed = 1; n < games; seed++) {
     const start = seed % map.regions.length
-    if (map.regions[start].id === 'penghu') continue
+    // 只靠航線連接的島不拿來當起點
+    if (map.regions[start].id === 'penghu' || map.regions[start].id === 'hongtou') continue
     n++
     const s = createGame(map, { players, starts: pickStarts(map, start, players, seed) })
     const rngs = Array.from({ length: players + 1 }, (_, p) => new Rng(seed * 31 + p * 7919 + 1))

@@ -104,13 +104,60 @@ for (const [p, q] of C.SEA) {
   edges.push({ a, b, kind: 'sea', km: r1(km(C.REGIONS[a].node, C.REGIONS[b].node)) })
 }
 
+// ---- 險航線：會轉彎 ----
+// 把幾個經緯度接成平滑的線（Catmull-Rom），每一段切成 STEPS 小段
+const STEPS = 6
+const smooth = (pts) => {
+  const out = [pts[0]]
+  for (let i = 0; i < pts.length - 1; i++) {
+    const p0 = pts[Math.max(0, i - 1)], p1 = pts[i], p2 = pts[i + 1], p3 = pts[Math.min(pts.length - 1, i + 2)]
+    for (let k = 1; k <= STEPS; k++) {
+      const t = k / STEPS, t2 = t * t, t3 = t2 * t
+      out.push([0, 1].map((d) => 0.5 * (2 * p1[d] + (p2[d] - p0[d]) * t + (2 * p0[d] - 5 * p1[d] + 4 * p2[d] - p3[d]) * t2 + (3 * p1[d] - p0[d] - 3 * p2[d] + p3[d]) * t3)))
+    }
+  }
+  return out
+}
+const shifted = (i) => { const [sx, sy] = C.SHIFT[C.REGIONS[i].id] ?? [0, 0]; return [C.REGIONS[i].node[0] + sx, C.REGIONS[i].node[1] + sy] }
+const landAt = (p) => C.REGIONS.findIndex((r, i) => {
+  const [sx, sy] = C.SHIFT[r.id] ?? [0, 0]
+  return merge(topo, members[i]).coordinates.some((poly) => pointInRing([p[0] - sx, p[1] - sy], poly[0]))
+})
+const roughReport = []
+for (const { ends: [p, q], via } of C.ROUGH) {
+  const from = idx[p], to = idx[q]
+  // 公里數照真正的位置量；畫面上的線從挪過的據點出發
+  const real = smooth([C.REGIONS[from].node, ...via, C.REGIONS[to].node])
+  let long = 0
+  for (let i = 1; i < real.length; i++) long += km(real[i - 1], real[i])
+  const drawn = smooth([shifted(from), ...via, shifted(to)])
+  const line = drawn.map((pt) => project(pt))
+  // 檢查：除了兩頭，線不該壓到陸地，也不該貼著別的據點
+  const total = line.length - 1
+  let onLand = 0, tight = Infinity, tightAt = ''
+  drawn.forEach((pt, i) => {
+    const hit = landAt(pt)
+    if (hit >= 0 && hit !== from && hit !== to) onLand++
+    regions.forEach((r, j) => {
+      if (j === from || j === to) return
+      const d = Math.hypot(r.x - line[i][0], r.y - line[i][1])
+      if (d < tight) { tight = d; tightAt = r.name }
+    })
+  })
+  roughReport.push(`${C.REGIONS[from].name}—${C.REGIONS[to].name}：${long.toFixed(0)} 公里，${total} 小段，壓到別區陸地的點 ${onLand} 個，離別的據點最近 ${tight.toFixed(0)} 單位（${tightAt}）`)
+  const mid = line.slice(1, -1)
+  const [a, b] = from < to ? [from, to] : [to, from]
+  edges.push({ a, b, kind: 'rough', km: r1(long), via: from < to ? mid : mid.reverse() })
+}
+
 const out = { id: C.MAP_ID, name: C.MAP_NAME, version: C.MAP_VERSION, width: WIDTH, height: C.HEIGHT, regions, edges, borders }
 const file = new URL('../src/maps/taiwan1901.json', import.meta.url)
 writeFileSync(file, JSON.stringify(out) + '\n')
 
 // ---- 報告 ----
 const count = (k) => edges.filter((e) => e.kind === k).length
-console.log(`${regions.length} 區，連線 ${edges.length}（一般 ${count('land')}、山路 ${count('mountain')}、航線 ${count('sea')}），畫布 ${WIDTH}×${C.HEIGHT}`)
+console.log(`${regions.length} 區，連線 ${edges.length}（一般 ${count('land')}、山路 ${count('mountain')}、航線 ${count('sea')}、險航線 ${count('rough')}），畫布 ${WIDTH}×${C.HEIGHT}`)
+for (const line of roughReport) console.log('險航線 ' + line)
 let min = Infinity, minPair = ''
 for (let a = 0; a < regions.length; a++) for (let b = a + 1; b < regions.length; b++) {
   const d = Math.hypot(regions[a].x - regions[b].x, regions[a].y - regions[b].y)

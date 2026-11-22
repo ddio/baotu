@@ -4,6 +4,7 @@ import { canSend, capOf, createGame, forecast, hashState, issue, sendAmount, she
 import { buildGraph, gateTick, pathTo, posOf, reach, route, stopIndex } from '../src/sim/graph'
 import { RULES } from '../src/sim/rules'
 import { pickStarts } from '../src/sim/setup'
+import type { MapData } from '../src/sim/types'
 
 const map = MAPS.taiwan1901
 const g = buildGraph(map)
@@ -515,5 +516,85 @@ describe('替對手挑起點', () => {
       for (const s of starts.slice(1)) expect(g.links[human].some((l) => l.to === s && l.kind === 'land')).toBe(false)
       expect(pickStarts(map, human, 4, 12345)).toEqual(starts)
     }
+  })
+})
+
+describe('轉彎的航線與險航線', () => {
+  // 甲 ─(險航線，往下繞一個ㄇ字)─ 乙；丙是砲台，在ㄇ字底下。甲乙的直線離丙很遠，繞下去的線才會經過丙的射程。
+  const region = (name: string, x: number, y: number, trait: MapData['regions'][number]['trait'] = 'none') =>
+    ({ id: name, name, today: '', trait, x, y, area: 1, d: 'M0,0' })
+  const bent: MapData = {
+    id: 'bent', name: '測試', version: 1, width: 600, height: 500,
+    regions: [region('甲', 100, 100), region('乙', 500, 100), region('丙', 300, 340, 'fort'), region('丁', 100, 20)],
+    edges: [
+      { a: 0, b: 1, kind: 'rough', km: 96, via: [[100, 300], [500, 300]] },
+      { a: 0, b: 2, kind: 'sea', km: 96 },
+      { a: 0, b: 3, kind: 'land', km: 30 },
+    ],
+    borders: [],
+  }
+  const bg = buildGraph(bent)
+  const there = bg.links[0].find((l) => l.to === 1)!, back = bg.links[1].find((l) => l.to === 0)!
+
+  it('險航線比一樣遠的航線慢 RULES.roughFactor 倍', () => {
+    expect(there.kind).toBe('rough')
+    expect(there.ticks).toBe(bg.links[0].find((l) => l.to === 2)!.ticks * RULES.roughFactor)
+    expect(back.ticks).toBe(there.ticks)
+  })
+
+  it('路長是沿著線量的，來回一樣長', () => {
+    expect(there.len).toBe(2000 + 4000 + 2000)
+    expect(back.len).toBe(there.len)
+    expect(there.cum).toEqual([0, 2000, 6000, 8000])
+    expect(back.cum).toEqual([0, 2000, 6000, 8000])
+  })
+
+  it('軍隊沿著線走：先往下、再橫過去、再往上，回程倒過來', () => {
+    const T = there.ticks
+    expect(posOf(bg, 0, 1, 0, T)).toEqual([1000, 1000])
+    expect(posOf(bg, 0, 1, T, T)).toEqual([5000, 1000])
+    expect(posOf(bg, 0, 1, T / 8, T)).toEqual([1000, 2000])
+    expect(posOf(bg, 0, 1, T / 4, T)).toEqual([1000, 3000])
+    expect(posOf(bg, 0, 1, T / 2, T)).toEqual([3000, 3000])
+    expect(posOf(bg, 0, 1, (T * 3) / 4, T)).toEqual([5000, 3000])
+    // 回程是同一條線（捨去的方向不同，最多差 1，也就是 0.1 個地圖單位）
+    for (let t = 0; t <= T; t++) {
+      const [x0, y0] = posOf(bg, 1, 0, t, T), [x1, y1] = posOf(bg, 0, 1, T - t, T)
+      expect(Math.abs(x0 - x1) + Math.abs(y0 - y1)).toBeLessThanOrEqual(1)
+    }
+    // 每一拍走的距離差不多：不會在轉彎的地方跳一大步
+    for (let t = 1; t <= T; t++) {
+      const [x0, y0] = posOf(bg, 0, 1, t - 1, T), [x1, y1] = posOf(bg, 0, 1, t, T)
+      expect(Math.hypot(x1 - x0, y1 - y0)).toBeLessThan((there.len / T) * 1.5)
+    }
+  })
+
+  it('城外也是沿著線量的：最後停在離據點 RULES.gate 的地方', () => {
+    const T = there.ticks, at = gateTick(bg, 0, 1, T)
+    const [x, y] = posOf(bg, 0, 1, at, T)
+    expect(x).toBe(5000)
+    // 一拍走 len / T，所以停的地方離 gate 不會超過一拍的路
+    expect((y - 1000) / 10).toBeLessThanOrEqual(RULES.gate)
+    expect((y - 1000) / 10).toBeGreaterThan(RULES.gate - there.len / T / 10)
+  })
+
+  it('砲台看的是軍隊真正走的線：繞進射程就挨砲，直線距離再遠也一樣', () => {
+    const s = createGame(bent, { players: 2, starts: [0, 3] })
+    s.regions[0].units = 60
+    const direct = Math.hypot(300 - 300, 340 - 100)
+    expect(direct).toBeGreaterThan(RULES.fort.range)
+    const lost = shellLoss(s, bg, [0, 1], 1, false, 1, 60)
+    expect(lost).toBeGreaterThan(5)
+    expect(issue(s, bent, bg, 0, 1)).toBe(true)
+    let shots = 0
+    for (let i = 0; i < gateTick(bg, 0, 1, there.ticks) - 1; i++) { step(s, bent, bg); shots += s.shots.length }
+    expect(shots).toBe(lost)
+    expect(s.armies[0].units).toBe(60 - lost)
+  })
+
+  it('只靠航線（含險航線）連接的區，對手不拿來開局', () => {
+    const sea: MapData = { ...bent, edges: bent.edges.filter((e) => e.kind !== 'land') }
+    for (let seed = 1; seed <= 20; seed++) expect(pickStarts(bent, 3, 2, seed)[1]).not.toBe(1)
+    expect(() => pickStarts(sea, 0, 2, 1)).toThrow()
   })
 })

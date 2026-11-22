@@ -1,6 +1,6 @@
 // 數值都集中在這裡。改了會影響戰局的東西，就要把 RULES_VERSION 加一，
 // 舊記錄才不會被用新規則硬播。
-export const RULES_VERSION = 6
+export const RULES_VERSION = 7
 
 /** 每秒幾拍 */
 export const TICKS_PER_SECOND = 10
@@ -32,6 +32,8 @@ export const RULES = {
   speedKmPerTickX10: 12,
   /** 山路要走幾倍的時間 */
   mountainFactor: 3,
+  /** 險航線要走幾倍的時間 */
+  roughFactor: 3,
   /** 每一段最少幾拍 */
   minLegTicks: 8,
   /** 驛站出發：時間乘以 num/den */
@@ -40,8 +42,9 @@ export const RULES = {
   /**
    * 砲台：射程（地圖座標的單位，量的是軍隊在路上的位置到砲台據點的直線距離）內的敵軍，
    * 每隔 every 拍每支少一個兵。中立的砲台誰都打。
+   * far：射程跟別人不一樣的砲台（照區的代號）。
    */
-  fort: { range: 80, every: 3 },
+  fort: { range: 80, every: 3, far: {} as Readonly<Record<string, number>> },
   /** 糧倉：每次換人佔領時加的兵 */
   granaryBonus: 15,
 } as const

@@ -129,10 +129,9 @@ function shell(state: GameState, g: Graph): void {
     const owner = state.regions[f].owner
     for (const a of state.armies) {
       if (a.units === 0 || a.owner === owner) continue
-      const from = a.path[a.leg], to = a.path[a.leg + 1]
-      if (!inRange(g, f, from, to, a.t, a.legTicks)) continue
+      const [x, y] = posOf(g, a.path[a.leg], a.path[a.leg + 1], a.t, a.legTicks)
+      if (!inRange(g, f, x, y)) continue
       a.units -= 1
-      const [x, y] = posOf(g, from, to, a.t, a.legTicks)
       state.shots.push({ fort: f, x, y })
     }
   }
@@ -152,7 +151,8 @@ export function shellLoss(state: GameState, g: Graph, path: number[], stop: numb
     const end = i === stop - 1 ? gateTick(g, path[i], path[i + 1], len) : len
     for (let t = 1; t <= end; t++, tick++) {
       if (tick % RULES.fort.every !== 0) continue
-      for (const f of forts) if (inRange(g, f, path[i], path[i + 1], t, len)) lost += 1
+      const [x, y] = posOf(g, path[i], path[i + 1], t, len)
+      for (const f of forts) if (inRange(g, f, x, y)) lost += 1
     }
   }
   return Math.min(lost, units)

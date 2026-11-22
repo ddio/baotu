@@ -1,4 +1,4 @@
-import { buildGraph, type Graph } from './graph'
+import { buildGraph, bySea, type Graph } from './graph'
 import { Rng } from './rng'
 import type { MapData } from './types'
 
@@ -21,14 +21,14 @@ function allPairs(g: Graph): number[][] {
 
 /**
  * 玩家選好起點後，替對手挑起點：一個一個放，每次挑離已有起點最遠的區。
- * 對手不從只靠航線連接的區（澎湖）開局。差不多遠的幾個候選用亂數決定，每局才不會都一樣。
+ * 對手不從只靠航線連接的區（澎湖、紅頭嶼）開局。差不多遠的幾個候選用亂數決定，每局才不會都一樣。
  */
 export function pickStarts(map: MapData, humanStart: number, players: number, seed: number): number[] {
   const g = buildGraph(map)
   const d = allPairs(g)
   const rng = new Rng(seed)
   const starts = [humanStart]
-  const seaOnly = (i: number) => g.links[i].every((l) => l.kind === 'sea')
+  const seaOnly = (i: number) => g.links[i].every((l) => bySea(l.kind))
   while (starts.length < players) {
     const scored: { i: number; s: number }[] = []
     for (let i = 0; i < g.n; i++) {

@@ -9,6 +9,16 @@ export const R = 21
 const LABEL = 17
 /** 點在據點附近多遠以內算點到它 */
 const NEAR = 36
+/** 只靠航線連接的島（澎湖、紅頭嶼）：島比據點還小，四周又都是海，可以點的範圍放大 */
+const NEAR_ISLAND = 56
+
+/** 一條連線在圖上的樣子：經過的點、走到每個點的累計長度、總長（地圖單位） */
+interface Leg { pts: number[][]; cum: number[]; len: number }
+const legOf = (pts: number[][]): Leg => {
+  const cum = [0]
+  for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1]))
+  return { pts, cum, len: cum[cum.length - 1] || 1 }
+}
 
 export interface Marks {
   /** 玩家是幾號；0 表示旁觀（重播） */
@@ -53,12 +63,12 @@ interface ArmyEls {
   owner: number
   units: number
   dots: number
-  /** 正在走的那一段路（from → to）與上一段的起點（沒有是 -1），長度是地圖單位 */
+  /** 正在走的那一段路（from → to）與上一段的起點（沒有是 -1） */
   from: number
   to: number
   prev: number
-  len: number
-  prevLen: number
+  leg: Leg
+  prevLeg: Leg | null
   /** 最後一次畫的時候：最前面一排離 from 多遠 */
   s: number
   /** 從第幾拍開始排隊進城（規則裡停在城外，畫面上隊伍接著往據點裡走）；不是在進城是 -1 */
@@ -70,6 +80,10 @@ export class MapView {
   private readonly land: SVGPathElement[] = []
   private readonly landCls: string[] = []
   private readonly nodes: NodeEls[] = []
+  /** 每條連線兩個方向各一份，照 from × 1024 + to 放 */
+  private readonly legs = new Map<number, Leg>()
+  /** 各區可以點的半徑 */
+  private readonly near: number[]
   /** 砲台的射程圈，照區的編號放 */
   private readonly ranges = new Map<number, SVGCircleElement>()
   private readonly armyLayer: SVGGElement
@@ -112,10 +126,21 @@ export class MapView {
     for (const b of map.borders) if (b.kind === 'mountain') ridges.append(s('path', { d: b.d, class: 'ridge' }), s('path', { d: b.d, class: 'ridge-spine' }))
     this.svg.append(ridges)
 
-    const lanes = s('g', {})
-    for (const e of map.edges) if (e.kind === 'sea') {
+    // 連線：大部分是據點到據點的直線，轉彎的航線中間多幾個點
+    const sea = map.regions.map(() => true)
+    for (const e of map.edges) {
       const a = map.regions[e.a], b = map.regions[e.b]
-      lanes.append(s('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, class: 'lane' }))
+      const pts = [[a.x, a.y], ...(e.via ?? []), [b.x, b.y]]
+      this.legs.set(e.a * 1024 + e.b, legOf(pts))
+      this.legs.set(e.b * 1024 + e.a, legOf([...pts].reverse()))
+      if (e.kind !== 'sea' && e.kind !== 'rough') sea[e.a] = sea[e.b] = false
+    }
+    this.near = sea.map((island) => (island ? NEAR_ISLAND : NEAR))
+
+    const lanes = s('g', {})
+    for (const e of map.edges) if (e.kind === 'sea' || e.kind === 'rough') {
+      const points = this.leg(e.a, e.b).pts.map((p) => p.join(',')).join(' ')
+      lanes.append(s('polyline', { points, class: e.kind === 'rough' ? 'lane rough' : 'lane' }))
     }
     this.svg.append(lanes)
 
@@ -123,7 +148,7 @@ export class MapView {
     const ranges = s('g', {})
     map.regions.forEach((r, i) => {
       if (r.trait !== 'fort') return
-      const ring = s('circle', { cx: r.x, cy: r.y, r: rules.fortRange, class: 'range' })
+      const ring = s('circle', { cx: r.x, cy: r.y, r: rules.fortFar[r.id] ?? rules.fortRange, class: 'range' })
       this.ranges.set(i, ring)
       ranges.append(ring)
     })
@@ -133,7 +158,7 @@ export class MapView {
     const title = s('g', { class: 'cartouche' })
     ;[...'臺灣堡圖'].forEach((ch, i) => title.append(s('text', { x: 62, y: 96 + i * 54, class: 'title' }, ch)))
     ;[...'明治三十四年二十廳'].forEach((ch, i) => title.append(s('text', { x: 108, y: 70 + i * 21, class: 'subtitle' }, ch)))
-    this.svg.append(title, this.legend(H))
+    this.svg.append(title, this.legend(H, map.edges.some((e) => e.kind === 'rough')))
 
     this.aim = s('polyline', { class: 'aim', visibility: 'hidden' })
     this.aimRest = s('polyline', { class: 'aim-rest', visibility: 'hidden' })
@@ -168,11 +193,37 @@ export class MapView {
     return g
   }
 
-  /** 圖例：左下角的海上，四種圖記各一行 */
-  private legend(H: number): SVGGElement {
-    const ROW = 26, W = 196, x = 34, y = H - 18 - ROW * SPECIALS.length - 8
+  /** 這條連線的樣子。不相鄰的兩區（不該發生）當成一條直線。 */
+  private leg(from: number, to: number): Leg {
+    const leg = this.legs.get(from * 1024 + to)
+    if (leg) return leg
+    const a = this.map.regions[from], b = this.map.regions[to]
+    return legOf([[a.x, a.y], [b.x, b.y]])
+  }
+
+  /** 沿著一條連線走了 d 之後的位置、那一小段的方向（單位向量）、是第幾小段 */
+  private along(leg: Leg, d: number): { x: number; y: number; ux: number; uy: number; seg: number } {
+    const at = Math.max(0, Math.min(leg.len, d))
+    let i = 0
+    while (i < leg.cum.length - 2 && leg.cum[i + 1] <= at) i++
+    const [x0, y0] = leg.pts[i], [x1, y1] = leg.pts[i + 1]
+    const seg = leg.cum[i + 1] - leg.cum[i] || 1
+    const ux = (x1 - x0) / seg, uy = (y1 - y0) / seg
+    return { x: x0 + ux * (at - leg.cum[i]), y: y0 + uy * (at - leg.cum[i]), ux, uy, seg: i }
+  }
+
+  /** 圖例：左下角的海上，四種圖記各一行；圖上有險航線的話再加一行 */
+  private legend(H: number, rough: boolean): SVGGElement {
+    const rows = SPECIALS.length + (rough ? 1 : 0)
+    const ROW = 26, W = 196, x = 34, y = H - 18 - ROW * rows - 8
     const g = s('g', { class: 'legend', transform: `translate(${x},${y})` },
-      s('rect', { width: W, height: ROW * SPECIALS.length + 8, class: 'legend-box' }))
+      s('rect', { width: W, height: ROW * rows + 8, class: 'legend-box' }))
+    if (rough) {
+      const cy = 4 + ROW * SPECIALS.length + ROW / 2
+      g.append(s('line', { x1: 8, y1: cy, x2: 8 + BADGE * 2, y2: cy, class: 'lane rough' }),
+        s('text', { x: 16 + BADGE * 2, y: cy + 5.5, class: 'legend-text' },
+          s('tspan', { class: 'legend-name' }, '險航線'), s('tspan', { dx: 7 }, '走得慢')))
+    }
     SPECIALS.forEach((k, i) => {
       const cy = 4 + ROW * i + ROW / 2
       const badge = traitBadge(k)
@@ -195,10 +246,10 @@ export class MapView {
   /** 這個螢幕位置是哪一區：先看有沒有點在據點附近，再看落在哪一塊地上。沒有就回 -1。 */
   regionAt(clientX: number, clientY: number): number {
     const p = this.point(clientX, clientY)
-    let best = -1, bestD = NEAR
+    let best = -1, bestD = Infinity
     this.map.regions.forEach((r, i) => {
       const d = Math.hypot(r.x - p.x, r.y - p.y)
-      if (d < bestD) { bestD = d; best = i }
+      if (d < this.near[i] && d < bestD) { bestD = d; best = i }
     })
     if (best >= 0) return best
     const pt = new DOMPoint(p.x, p.y)
@@ -216,7 +267,10 @@ export class MapView {
   }
   /** 指到某一區：畫出軍隊會走的路。走得到的那一段（到第 stop 站）是實線，後面到目標的是淡淡的虛線。 */
   setRoute(path: number[], stop: number): void {
-    const pts = (ids: number[]) => ids.map((i) => `${this.map.regions[i].x},${this.map.regions[i].y}`).join(' ')
+    // 一段一段接起來；轉彎的航線照它的線畫
+    const pts = (ids: number[]) => ids
+      .flatMap((id, k) => (k === 0 ? [[this.map.regions[id].x, this.map.regions[id].y]] : this.leg(ids[k - 1], id).pts.slice(1)))
+      .map((p) => p.join(',')).join(' ')
     this.aim.setAttribute('points', pts(path.slice(0, stop + 1)))
     this.aim.setAttribute('class', 'aim ok')
     this.aim.setAttribute('visibility', 'visible')
@@ -229,13 +283,13 @@ export class MapView {
     this.aimRest.setAttribute('visibility', 'hidden')
   }
 
-  /** 把目前的狀態畫出來。alpha 是這一拍走了多少（0–1），讓行軍看起來連續。 */
   /** 換一版規則的數字（砲台射程圈、冷卻圈） */
   useRules(rules: ViewRules): void {
     this.rules = rules
-    for (const ring of this.ranges.values()) ring.setAttribute('r', String(rules.fortRange))
+    for (const [i, ring] of this.ranges) ring.setAttribute('r', String(rules.fortFar[this.map.regions[i].id] ?? rules.fortRange))
   }
 
+  /** 把目前的狀態畫出來。alpha 是這一拍走了多少（0–1），讓行軍看起來連續。 */
   render(state: ViewState, alpha: number, marks: Marks): void {
     const regs = this.map.regions
     for (let i = 0; i < regs.length; i++) {
@@ -294,9 +348,9 @@ export class MapView {
       for (const e of state.shots) this.shot(e)
       // 圍城：城門口每隔幾拍閃一下
       if (state.tick % 3 === 0) for (const a of state.armies) if (a.siege && !a.fight && state.regions[a.path[a.leg + 1]].owner !== a.owner) {
-        const from = regs[a.path[a.leg]], to = regs[a.path[a.leg + 1]]
-        const len = Math.hypot(to.x - from.x, to.y - from.y), f = (len - R - 1) / len
-        this.sparkAt(from.x + (to.x - from.x) * f, from.y + (to.y - from.y) * f, 8)
+        const leg = this.leg(a.path[a.leg], a.path[a.leg + 1])
+        const gate = this.along(leg, leg.len - R - 1)
+        this.sparkAt(gate.x, gate.y, 8)
       }
     }
   }
@@ -362,8 +416,6 @@ export class MapView {
    * 後面幾排沿著走過的路跟著；還沒出城的、已經進城的那幾排不畫（藏在據點底下）。
    */
   private renderArmies(state: ViewState, time: number, alpha: number): void {
-    const regs = this.map.regions
-    const dist = (a: number, b: number) => Math.hypot(regs[b].x - regs[a].x, regs[b].y - regs[a].y)
     const seen = new Set<number>()
     for (const a of state.armies) {
       seen.add(a.id)
@@ -372,7 +424,7 @@ export class MapView {
         const g = s('g', { class: 'army' })
         const text = s('text', { class: 'army-units' })
         g.append(text)
-        el = { g, text, rows: [], owner: a.owner, units: -1, dots: 0, from: 0, to: 0, prev: -1, len: 1, prevLen: 1, s: 0, enter: -1 }
+        el = { g, text, rows: [], owner: a.owner, units: -1, dots: 0, from: 0, to: 0, prev: -1, leg: this.leg(a.path[a.leg], a.path[a.leg + 1]), prevLeg: null, s: 0, enter: -1 }
         this.armies.set(a.id, el)
         this.armyLayer.append(g)
       }
@@ -385,18 +437,19 @@ export class MapView {
       el.from = a.path[a.leg]
       el.to = a.path[a.leg + 1]
       el.prev = a.leg > 0 ? a.path[a.leg - 1] : -1
-      el.len = dist(el.from, el.to)
-      el.prevLen = el.prev >= 0 ? dist(el.prev, el.from) : 1
-      el.s = Math.min(1, (a.t + (a.siege || a.fight ? 0 : alpha)) / a.legTicks) * el.len
+      el.leg = this.leg(el.from, el.to)
+      el.prevLeg = el.prev >= 0 ? this.leg(el.prev, el.from) : null
+      const len = el.leg.len
+      el.s = Math.min(1, (a.t + (a.siege || a.fight ? 0 : alpha)) / a.legTicks) * len
       // 進城：規則裡這支停在城外、每拍進去幾個；畫面上隊伍照原來的步伐接著走進據點（被據點蓋住），
       // 排數跟著還沒進去的兵變少
       if (!(a.siege && !a.fight && state.regions[el.to].owner === a.owner)) el.enter = -1
       else if (el.enter < 0 || time < el.enter) el.enter = time
-      const head = el.enter < 0 ? el.s : Math.min(el.len, el.s + (time - el.enter) * Math.max(2.5, el.len / a.legTicks))
+      const head = el.enter < 0 ? el.s : Math.min(len, el.s + (time - el.enter) * Math.max(2.5, len / a.legTicks))
       this.place(el, head)
       // 兵數標在城外，不跟著進去
-      const from = regs[el.from], to = regs[el.to], f = el.s / el.len
-      el.text.setAttribute('transform', `translate(${(from.x + (to.x - from.x) * f).toFixed(1)},${(from.y + (to.y - from.y) * f - 13).toFixed(1)})`)
+      const at = this.along(el.leg, el.s)
+      el.text.setAttribute('transform', `translate(${at.x.toFixed(1)},${(at.y - 13).toFixed(1)})`)
     }
     // 不在了的就收掉：進城進完了，或在路上、城外被打光了
     for (const [id, el] of this.armies) {
@@ -427,21 +480,20 @@ export class MapView {
 
   /** 把一支軍隊的每一排放到路上：最前面一排在離這段路起點 head 的地方，後面每排往回退一格。 */
   private place(el: ArmyEls, head: number): void {
-    const regs = this.map.regions
     for (let r = 0; r < el.rows.length; r++) {
       const row = el.rows[r]
-      let d = head - r * ROW_GAP, from = el.from, to = el.to, len = el.len
-      let show = d <= len
+      let d = head - r * ROW_GAP, from = el.from, to = el.to, leg = el.leg
+      let show = d <= leg.len
       if (d < 0) {
         // 這一排還在上一段路上；沒有上一段，就是還沒出城
-        if (el.prev < 0) show = false
-        else { from = el.prev; to = el.from; len = el.prevLen; d += len; if (d < 0) show = false }
+        if (!el.prevLeg) show = false
+        else { from = el.prev; to = el.from; leg = el.prevLeg; d += leg.len; if (d < 0) show = false }
       }
       if (show !== row.shown) { row.shown = show; row.g.setAttribute('visibility', show ? 'visible' : 'hidden') }
       if (!show) continue
-      const a = regs[from], b = regs[to]
-      const ux = (b.x - a.x) / len, uy = (b.y - a.y) / len
-      const key = from * 1024 + to
+      const { x, y, ux, uy, seg } = this.along(leg, d)
+      // 轉彎的航線上，每過一個彎重排一次方向
+      const key = (from * 1024 + to) * 256 + seg
       if (row.key !== key) {
         // 每排排成微微後掠的弧線，像一道浪。點本身不轉，形狀才認得出是哪一方
         row.key = key
@@ -451,7 +503,7 @@ export class MapView {
           dot.setAttribute('transform', `translate(${(ux * back - uy * across).toFixed(1)},${(uy * back + ux * across).toFixed(1)})`)
         })
       }
-      row.g.setAttribute('transform', `translate(${(a.x + ux * d).toFixed(1)},${(a.y + uy * d).toFixed(1)})`)
+      row.g.setAttribute('transform', `translate(${x.toFixed(1)},${y.toFixed(1)})`)
     }
   }
 

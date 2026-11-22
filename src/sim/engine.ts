@@ -44,6 +44,8 @@ export interface ViewState {
 export interface ViewRules {
   /** 砲台射程（地圖座標的單位） */
   fortRange: number
+  /** 射程跟別人不一樣的砲台：區的代號 → 射程 */
+  fortFar: Readonly<Record<string, number>>
   /** 派兵後的冷卻（拍） */
   cooldownTicks: number
 }
@@ -74,7 +76,7 @@ export interface Engine {
 
 /** 一版規則要交出來的東西：就是 game.ts、graph.ts、rules.ts 本來就有的那幾個。 */
 export interface EngineParts<S extends ViewState, G extends object> {
-  RULES: { fort: { range: number }; cooldownTicks: number }
+  RULES: { fort: { range: number; far?: Readonly<Record<string, number>> }; cooldownTicks: number }
   buildGraph(map: MapData): G
   createGame(map: MapData, setup: Setup): S
   issue(state: S, map: MapData, g: G, from: number, to: number): boolean
@@ -87,7 +89,7 @@ export function makeEngine<S extends ViewState, G extends object>(version: numbe
   const graphs = new WeakMap<MapData, G>()
   return {
     version,
-    view: { fortRange: p.RULES.fort.range, cooldownTicks: p.RULES.cooldownTicks },
+    view: { fortRange: p.RULES.fort.range, fortFar: p.RULES.fort.far ?? {}, cooldownTicks: p.RULES.cooldownTicks },
     start(map, setup) {
       const g = graphs.get(map) ?? p.buildGraph(map)
       graphs.set(map, g)

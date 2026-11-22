@@ -1,7 +1,8 @@
 // 地圖資料（src/maps/*.json）與模擬狀態的型別。
 
 export type Trait = 'none' | 'city' | 'fort' | 'granary' | 'post'
-export type EdgeKind = 'land' | 'mountain' | 'sea'
+/** land 一般、mountain 山路、sea 航線、rough 險航線（比一般航線慢） */
+export type EdgeKind = 'land' | 'mountain' | 'sea' | 'rough'
 
 export interface RegionDef {
   id: string
@@ -16,7 +17,15 @@ export interface RegionDef {
   /** SVG path */
   d: string
 }
-export interface EdgeDef { a: number; b: number; kind: EdgeKind; km: number }
+export interface EdgeDef {
+  a: number
+  b: number
+  kind: EdgeKind
+  /** 實際要走的公里數；轉彎的航線是沿著線量的 */
+  km: number
+  /** 這條線不是直的：從 a 到 b 中間依序經過的點（地圖座標，不含兩頭的據點） */
+  via?: number[][]
+}
 export interface BorderDef { a: number; b: number; kind: EdgeKind; d: string }
 export interface MapData {
   id: string

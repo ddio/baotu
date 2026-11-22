@@ -182,12 +182,15 @@ export function startApp(root: HTMLElement): void {
       const fast = map.regions[from].trait === 'post'
       const path = route(graph, state, from, ME, fast, to)!
       const stop = stopIndex(state, path, ME)
-      let ticks = 0, ridge = false
+      let ticks = 0, ridge = false, rough = false
       for (let i = 0; i < stop; i++) {
         ticks += legTicks(graph, path[i], path[i + 1], fast)
-        if (graph.links[path[i]].find((l) => l.to === path[i + 1])?.kind === 'mountain') ridge = true
+        const kind = graph.links[path[i]].find((l) => l.to === path[i + 1])?.kind
+        if (kind === 'mountain') ridge = true
+        if (kind === 'rough') rough = true
       }
-      return { path, stop, at: path[stop], ticks, ridge }
+      const slow = [ridge ? '要翻山' : '', rough ? '走險航線' : ''].filter(Boolean).join('、')
+      return { path, stop, at: path[stop], ticks, slow }
     }
 
     const orderText = (from: number, to: number): [string, string] => {
@@ -195,7 +198,7 @@ export function startApp(root: HTMLElement): void {
       const a = map.regions[from], b = map.regions[to], target = state.regions[p.at]
       const n = sendAmount(state.regions[from].units)
       const secs = Math.max(1, Math.round(p.ticks / TICKS_PER_SECOND))
-      const trip = `約 ${secs} 秒到${p.ridge ? '（要翻山）' : ''}`
+      const trip = `約 ${secs} 秒到${p.slow && `（${p.slow}）`}`
       // 照規則先跑一遍：砲台一路上（連在城外打的時候）打掉幾個、守軍邊打邊長，都算在內
       const f = forecast(state, map, graph, from, to)
       const fort = f?.shelled ? `，砲台會打掉你約 ${f.shelled} 兵` : ''

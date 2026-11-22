@@ -109,7 +109,9 @@ button.danger { border-color: var(--seal); color: var(--seal); }
 .land.lit { stroke-width: 2.6; }
 .ridge { fill: none; stroke: var(--ridge); stroke-width: 9; stroke-dasharray: 1.4 3.2; opacity: 0.85; }
 .ridge-spine { fill: none; stroke: var(--ridge); stroke-width: 1.4; }
-.lane { stroke: #3d6474; stroke-width: 1.6; stroke-dasharray: 2 6; stroke-linecap: round; }
+.lane { fill: none; stroke: #3d6474; stroke-width: 1.6; stroke-dasharray: 2 6; stroke-linecap: round; stroke-linejoin: round; }
+/* 險航線：一長一短，比一般航線稀，看起來就是比較遠、比較難走 */
+.lane.rough { stroke-dasharray: 9 5 2 5; }
 .cartouche text { text-anchor: middle; fill: var(--ink); }
 .title { font-size: 46px; font-weight: 900; }
 .subtitle { font-size: 16px; fill: var(--ink-soft); }

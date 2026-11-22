@@ -68,7 +68,7 @@ export function aiThink(
         .sort((a, b) => a.eta - b.eta || a.s - b.s)
       if (!near.length) continue
       // 圍城時還在幾座別人砲台的射程裡（打砲台本身，或緊鄰砲台的區）
-      const guns = g.forts.filter((f) => state.regions[f].owner !== me && inRange(g, f, t, t, 0, 1)).length
+      const guns = g.forts.filter((f) => state.regions[f].owner !== me && inRange(g, f, g.x[t], g.y[t])).length
       const from: number[] = []
       let sent = 0, lost = 0, eta = 0, ok = false
       for (const c of near) {

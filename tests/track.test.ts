@@ -13,7 +13,7 @@ describe('使用統計', () => {
     expect(() => trackEnd({ difficulty: 'hard', players: 3 }, 'lose')).not.toThrow()
   })
 
-  it('分類都放在 path 裡，一律以 baotu/ 開頭：難度、對手數（不含自己）、規則版本、結果', () => {
+  it('分類都放在 path 裡：難度、對手數（不含自己）、規則版本、結果', () => {
     const count = vi.fn()
     vi.stubGlobal('window', { goatcounter: { count } })
     trackPlay({ difficulty: 'normal', players: 4 })
@@ -22,11 +22,11 @@ describe('使用統計', () => {
     trackReplay(RULES_VERSION)
     trackReplay(6)
     expect(count.mock.calls.map(([v]) => v.path)).toEqual([
-      `baotu/play/normal/3/v${RULES_VERSION}`,
-      `baotu/end/win/hard/2/v${RULES_VERSION}`,
-      `baotu/end/quit/easy/3/v${RULES_VERSION}`,
-      `baotu/replay/v${RULES_VERSION}`,
-      'baotu/replay/v6',
+      `play/normal/3/v${RULES_VERSION}`,
+      `end/win/hard/2/v${RULES_VERSION}`,
+      `end/quit/easy/3/v${RULES_VERSION}`,
+      `replay/v${RULES_VERSION}`,
+      'replay/v6',
     ])
     for (const [v] of count.mock.calls) {
       expect(v.event).toBe(true)

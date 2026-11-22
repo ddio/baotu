@@ -13,13 +13,10 @@ declare global {
 const LEVEL: Record<Difficulty, string> = { easy: '簡單', normal: '普通', hard: '困難' }
 const RESULT = { win: '勝', lose: '敗', quit: '放棄' } as const
 
-// 統計的站台和別的網站共用，堡圖的每一筆都以這個開頭（造訪那一筆的 /baotu/ 寫在 index.html）
-const PREFIX = 'baotu/'
-
 // GoatCounter 依 path 分開計數，所以分類都放進 path；title 只是後台好讀
 function count(path: string, title: string): void {
   try {
-    window.goatcounter?.count?.({ path: PREFIX + path, title: `堡圖　${title}`, event: true })
+    window.goatcounter?.count?.({ path, title, event: true })
   } catch { /* 統計失敗不該影響遊戲 */ }
 }
 

@@ -1,0 +1,23 @@
+{
+  "name": "baotu",
+  "version": "0.1.0",
+  "private": true,
+  "description": "堡圖：以 1901 年臺灣二十廳為地圖的即時佔地遊戲",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit && vite build",
+    "preview": "vite preview",
+    "test": "vitest run",
+    "build:map": "node tools/build-map.mjs"
+  },
+  "devDependencies": {
+    "taiwan-atlas": "^2021.9.20",
+    "topojson-client": "^3.1.0",
+    "topojson-simplify": "^3.0.3",
+    "typescript": "^7.0.2",
+    "vite": "^8.3.8",
+    "vitest": "^5.1.1"
+  }
+}

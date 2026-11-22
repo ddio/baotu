@@ -12,7 +12,7 @@ export interface Setup {
 
 export function createGame(map: MapData, setup: Setup): GameState {
   const regions: Region[] = map.regions.map((r) => ({
-    owner: 0, units: RULES.neutral[r.trait], acc: 0, readyAt: 0, bonusTaken: 0,
+    owner: 0, units: RULES.neutral[r.trait], acc: 0, readyAt: 0,
   }))
   setup.starts.forEach((r, i) => {
     regions[r].owner = i + 1
@@ -20,7 +20,7 @@ export function createGame(map: MapData, setup: Setup): GameState {
   })
   const alive = [false]
   for (let p = 1; p <= setup.players; p++) alive.push(true)
-  return { tick: 0, players: setup.players, regions, armies: [], nextArmyId: 1, alive, winner: 0, clashes: [] }
+  return { tick: 0, players: setup.players, regions, armies: [], nextArmyId: 1, alive, winner: 0, clashes: [], gains: [] }
 }
 
 export const isCity = (map: MapData, r: number) => map.regions[r].trait === 'city'
@@ -72,10 +72,10 @@ function arrive(state: GameState, map: MapData, army: Army, at: number): void {
   r.owner = army.owner
   r.acc = 0
   r.readyAt = state.tick
-  const bit = 1 << army.owner
-  if (map.regions[at].trait === 'granary' && !(r.bonusTaken & bit)) {
-    r.bonusTaken |= bit
+  // 糧倉每次換人都加兵
+  if (map.regions[at].trait === 'granary') {
     r.units += RULES.granaryBonus
+    state.gains.push({ region: at, units: RULES.granaryBonus })
   }
 }
 
@@ -122,6 +122,7 @@ export function step(state: GameState, map: MapData, g: Graph): void {
   }
   // 行軍（依編號順序處理，結果才固定）：先全部往前一拍，路上碰頭的先抵銷，剩下的才抵達
   for (const a of state.armies) a.t += 1
+  state.gains = []
   clash(state)
   const still: Army[] = []
   for (const a of state.armies) {
@@ -169,7 +170,7 @@ export function hashState(state: GameState): number {
   let h = 2166136261 >>> 0
   const mix = (v: number) => { h = Math.imul(h ^ (v | 0), 16777619) >>> 0 }
   mix(state.tick)
-  for (const r of state.regions) { mix(r.owner); mix(r.units); mix(r.acc); mix(r.readyAt); mix(r.bonusTaken) }
+  for (const r of state.regions) { mix(r.owner); mix(r.units); mix(r.acc); mix(r.readyAt) }
   for (const a of state.armies) { mix(a.id); mix(a.owner); mix(a.units); mix(a.leg); mix(a.t); for (const p of a.path) mix(p) }
   mix(state.winner)
   return h

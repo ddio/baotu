@@ -73,6 +73,8 @@ export class MapView {
   private readonly landCls: string[] = []
   private readonly nodes: NodeEls[] = []
   private readonly armyLayer: SVGGElement
+  /** 蓋在據點上面的短暫效果 */
+  private readonly fxLayer: SVGGElement
   private readonly armies = new Map<number, ArmyEls>()
   private sparkTick = -1
   private readonly aim: SVGPolylineElement
@@ -142,7 +144,8 @@ export class MapView {
       this.nodes.push({ g, shape, back, units, ring, halo, owner: -1, shown: -1, ringOn: false, cls: '' })
       nodeLayer.append(g)
     }
-    this.svg.append(this.aimRest, this.aim, this.armyLayer, nodeLayer)
+    this.fxLayer = s('g', { class: 'fx' })
+    this.svg.append(this.aimRest, this.aim, this.armyLayer, nodeLayer, this.fxLayer)
   }
 
   /** 據點下面的地名。貼著圖框下緣的區，地名改放右邊。 */
@@ -262,7 +265,45 @@ export class MapView {
     if (state.tick !== this.sparkTick) {
       this.sparkTick = state.tick
       for (const c of state.clashes) this.spark(c)
+      for (const e of state.gains) this.gain(e.region, e.units, state.regions[e.region].owner)
     }
+  }
+
+  /**
+   * 糧倉換人、兵變多了：一圈小點從四周湧進據點，據點鼓一下，外面盪開兩圈，上面飄一個「+15」。
+   */
+  private gain(region: number, units: number, owner: number): void {
+    const r = this.map.regions[region], n = this.nodes[region]
+    const at = `translate(${r.x},${r.y})`
+    // 湧進來的小點畫在據點底下，走到中間就被據點蓋住
+    const crowd = s('g', { transform: at, class: 'gain' })
+    const COUNT = 12
+    for (let i = 0; i < COUNT; i++) {
+      const angle = (i / COUNT) * Math.PI * 2 + 0.26, far = R + 30 + (i % 3) * 7
+      const dot = s('path', { d: shapePath(owner, DOT), class: 'army-dot gain-dot' })
+      dot.style.fill = SIDES[owner].color
+      dot.style.setProperty('--dx', `${(Math.cos(angle) * far).toFixed(1)}px`)
+      dot.style.setProperty('--dy', `${(Math.sin(angle) * far).toFixed(1)}px`)
+      dot.style.animationDelay = `${i * 30}ms`
+      crowd.append(dot)
+    }
+    this.armyLayer.append(crowd)
+    const over = s('g', { transform: at, class: 'gain' })
+    // 兩圈跟著據點鼓起來的那一下盪開
+    for (const delay of [330, 520]) {
+      const ring = s('circle', { r: R + 3, class: 'gain-ring' })
+      ring.style.stroke = SIDES[owner].color
+      ring.style.animationDelay = `${delay}ms`
+      over.append(ring)
+    }
+    over.append(s('text', { y: -R - 12, class: 'gain-text' }, `+${units}`))
+    this.fxLayer.append(over)
+    for (const el of [n.shape, n.units]) {
+      el.classList.remove('taken', 'swell')
+      void el.getBoundingClientRect()
+      el.classList.add('swell')
+    }
+    setTimeout(() => { crowd.remove(); over.remove() }, 1400)
   }
 
   /**

@@ -148,6 +148,17 @@ button.danger { border-color: var(--seal); color: var(--seal); }
 .army-units { font-family: var(--digits); font-weight: 700; font-size: 15px; text-anchor: middle; fill: var(--ink); paint-order: stroke; stroke: var(--paper); stroke-width: 3; }
 .taken { animation: taken 0.45s ease-out; }
 @keyframes taken { 0% { transform: scale(1.7); } 100% { transform: scale(1); } }
+/* 糧倉加兵：小點湧進來，據點鼓一下，外面盪開兩圈，上面飄一個數字 */
+.gain { pointer-events: none; }
+.gain-dot { animation: gain-in 0.5s ease-in both; }
+@keyframes gain-in { 0% { transform: translate(var(--dx), var(--dy)); opacity: 0; } 25% { opacity: 1; } 100% { transform: translate(0, 0); opacity: 1; } }
+.swell { animation: swell 0.9s ease-out; }
+.units.swell { transform-box: fill-box; transform-origin: center; }
+@keyframes swell { 0% { transform: scale(1); } 35% { transform: scale(1); } 55% { transform: scale(1.55); } 72% { transform: scale(0.9); } 86% { transform: scale(1.12); } 100% { transform: scale(1); } }
+.gain-ring { fill: none; stroke-width: 3.5; transform-origin: 0 0; animation: gain-ring 0.7s ease-out both; }
+@keyframes gain-ring { 0% { transform: scale(1); opacity: 0; } 5% { opacity: 0.95; } 100% { transform: scale(2.1); opacity: 0; } }
+.gain-text { font-family: var(--digits); font-weight: 700; font-size: 26px; text-anchor: middle; fill: var(--ink); paint-order: stroke; stroke: var(--paper); stroke-width: 4; stroke-linejoin: round; animation: gain-text 1.35s ease-out both; }
+@keyframes gain-text { 0% { transform: translateY(8px); opacity: 0; } 15% { opacity: 1; } 70% { opacity: 1; } 100% { transform: translateY(-26px); opacity: 0; } }
 
 /* ---- 下方的說明與控制 ---- */
 .panel { border-top: 1.5px solid var(--ink); padding: 8px 12px 10px; min-height: 104px; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
@@ -204,7 +215,10 @@ button.danger { border-color: var(--seal); color: var(--seal); }
 .chart .tip b { color: var(--ink); font-family: var(--digits); }
 
 @media (prefers-reduced-motion: reduce) {
-  .taken, .spark { animation: none; }
+  .taken, .spark, .swell, .gain-dot, .gain-ring { animation: none; }
+  .gain-dot, .gain-ring { display: none; }
+  .gain-text { animation: gain-fade 1.35s linear both; }
+  @keyframes gain-fade { 0%, 80% { opacity: 1; } 100% { opacity: 0; } }
   .land, .forces .seg { transition: none; }
 }
 

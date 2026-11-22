@@ -1,6 +1,6 @@
 // 數值都集中在這裡。改了會影響戰局的東西，就要把 RULES_VERSION 加一，
 // 舊記錄才不會被用新規則硬播。
-export const RULES_VERSION = 2
+export const RULES_VERSION = 3
 
 /** 每秒幾拍 */
 export const TICKS_PER_SECOND = 10
@@ -30,6 +30,6 @@ export const RULES = {
   /** 進攻砲台：兵力乘以 num/den */
   fortNum: 2,
   fortDen: 3,
-  /** 糧倉：第一次佔領時加的兵 */
+  /** 糧倉：每次換人佔領時加的兵 */
   granaryBonus: 15,
 } as const

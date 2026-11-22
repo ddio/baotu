@@ -81,7 +81,6 @@ export function aiThink(
       }
       if (!ok) continue
       let value: number = VALUE[map.regions[t].trait]
-      if (map.regions[t].trait === 'granary' && target.bonusTaken & (1 << me)) value = VALUE.none
       if (target.owner !== 0) value += 4
       // 花的兵越少、越快到的越好；加一點亂數，幾個對手才不會想得一模一樣
       const score = Math.floor((value * 1000) / (sent + 8 + Math.floor(eta / 6))) + rng.int(40)

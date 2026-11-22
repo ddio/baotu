@@ -46,7 +46,7 @@ export const TRAITS: Record<Trait, { name: string; text: string; short: string }
   none: null,
   city: { name: '大城', text: '產兵比較快，能屯的兵也多', short: '產兵快' },
   fort: { name: '砲台', text: '來攻的兵只算三分之二，能屯的兵最多', short: '難攻，屯兵多' },
-  granary: { name: '糧倉', text: '第一次拿下時多得 15 兵', short: '初次拿下加兵' },
+  granary: { name: '糧倉', text: '每次換人佔領，都多得 15 兵', short: '拿下就加兵' },
   post: { name: '驛站', text: '從這裡出發的兵走得快', short: '出兵走得快' },
 }
 

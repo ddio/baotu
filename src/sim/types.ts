@@ -39,8 +39,6 @@ export interface Region {
   acc: number
   /** 這一拍（含）之後才能再派兵 */
   readyAt: number
-  /** 哪些玩家已經領過這區的糧倉加兵（位元旗標） */
-  bonusTaken: number
 }
 
 export interface Army {
@@ -62,6 +60,9 @@ export interface Army {
 /** 兩支敵對的軍隊在路上碰頭的地方：from → to 這段路上走了 t / legTicks 的位置。 */
 export interface Clash { from: number; to: number; t: number; legTicks: number; units: number }
 
+/** 糧倉換人時多出來的兵 */
+export interface Gain { region: number; units: number }
+
 export interface GameState {
   tick: number
   players: number
@@ -74,6 +75,8 @@ export interface GameState {
   winner: PlayerId
   /** 剛跑完的這一拍裡，路上碰頭的地方。只給畫面用，每拍重填，不算進雜湊。 */
   clashes: Clash[]
+  /** 剛跑完的這一拍裡，哪些糧倉換了人、加了多少兵。也只給畫面用。 */
+  gains: Gain[]
 }
 
 /** 一筆指令：在第 tick 拍，從 from 區派兵到 to 區。派兵的人就是當下 from 的主人。 */

@@ -2,7 +2,7 @@
 import { DEFAULT_MAP, MAPS } from '../maps'
 import type { Difficulty } from '../sim/ai'
 import type { ViewState } from '../sim/engine'
-import type { MapData } from '../sim/types'
+import type { MapData, PlayerId } from '../sim/types'
 import { CURRENT } from '../sim/engines'
 import { canSend, createGame, forecast, sendAmount } from '../sim/game'
 import { legTicks, reach, route, stopIndex } from '../sim/graph'
@@ -20,6 +20,12 @@ import { trackEnd, trackPlay, trackReplay, trackShare } from './track'
 
 const ME = 1
 const TICK_MS = 1000 / TICKS_PER_SECOND
+/**
+ * 重播的戰報裡，沒換主人的仗（攻城失利、守住、遭遇）兩邊合計折損到這個數才提。
+ * 兵是一個換一個，60 大約是各折 30：一個普通據點的上限是 40，等於幾乎一整城的兵拚光。
+ * 拿 48 局電腦對打量過：60 平均一局多 6 則（40 是 10 則，太吵；80 是 4 則，四分之一的局一則都沒有）。
+ */
+const BATTLE_MIN = 60
 const LEVELS: Difficulty[] = ['easy', 'normal', 'hard']
 const RESULT: Record<Result, string> = { win: '勝', lose: '敗', quit: '放棄' }
 
@@ -433,28 +439,57 @@ export function startApp(root: HTMLElement): void {
     trackReplay(rec.rulesVersion)
     const ac = new AbortController()
     let raf = 0, last = performance.now(), acc = 0, playing = true, speed = 2
-    // 戰報：你攻下、失守的據點，在地圖角落留幾秒。照時間軸上的位置算，拉時間軸也對得上
+    // 戰報：你攻下、失守的據點，和沒換主人的大仗，在地圖角落留幾秒。照時間軸上的位置算，拉時間軸也對得上
     const me = rec.config.human
-    const mine = replay.takes.filter((e) => me !== 0 && (e.to === me || e.from === me))
+    const place = (i: number) => replay.map.regions[i].name
+    const feed: { tick: number; make: () => HTMLElement }[] = []
+    /** 一則戰報。toll 是［你折損的，對方折損的］ */
+    const post = (tick: number, cls: 'won' | 'lost', icon: PlayerId, text: string, title: string, toll?: [number, number]) => feed.push({ tick, make: () =>
+      h('div', { class: cls, title: toll ? `${title}：你折損 ${toll[0]}，對方折損 ${toll[1]}` : title },
+        h('span', { class: 'digits' }, clock(tick / TICKS_PER_SECOND)), sideIcon(icon), h('span', {}, text),
+        toll ? h('span', { class: 'toll digits' }, `折 ${toll[0]}　殲 ${toll[1]}`) : '') })
+    if (me !== 0) {
+      for (const e of replay.takes) {
+        if (e.to === me) post(e.tick, 'won', e.to, `攻下${place(e.region)}`, `你攻下${place(e.region)}`)
+        else if (e.from === me) post(e.tick, 'lost', e.to, `${place(e.region)}陷落`, `${place(e.region)}被${sideName(e.to)}攻下`)
+      }
+      // 易手的上面已經有一則；這裡補上你沒攻下來的、你守住的，和城外的遭遇
+      for (const b of replay.battles) {
+        const all = b.lost.reduce((x, y) => x + y, 0), ours = b.lost[me], theirs = all - ours
+        if (b.kind === 'fell' || all < BATTLE_MIN) continue
+        const name = place(b.region)
+        if (b.kind === 'field') {
+          if (ours === 0 || theirs === 0) continue
+          // 圖示用折損最多的那個對手
+          let foe = 0
+          b.lost.forEach((n, p) => { if (p !== me && n > b.lost[foe]) foe = p })
+          const where = b.other >= 0 ? `${name}、${place(b.other)}間` : `${name}附近`
+          post(b.tick, 'won', foe as PlayerId, `${where}遭遇`, `你在${where}遇上${sideName(foe as PlayerId)}`, [ours, theirs])
+        } else if (b.attacker === me) {
+          post(b.tick, 'lost', b.defender, `攻${name}失利`, `你攻${name}沒打下來`, [ours, theirs])
+        } else if (b.defender === me) {
+          post(b.tick, 'won', b.attacker, `守住${name}`, `你守住${name}，打退${sideName(b.attacker)}`, [ours, theirs])
+        }
+      }
+      feed.sort((a, b) => a.tick - b.tick)
+    }
     const news = h('div', { class: 'news' })
     const shown = new Map<number, HTMLElement>()
     const NEWS_TICKS = 80, NEWS_FADE = 20
     const report = () => {
       const now = replay.state.tick
-      const recent = mine.filter((e) => e.tick <= now && e.tick > now - NEWS_TICKS).slice(-3)
-      for (const [tick, el] of shown) if (!recent.some((e) => e.tick * 64 + e.region === tick)) { el.remove(); shown.delete(tick) }
-      for (const e of recent) {
-        const key = e.tick * 64 + e.region
-        let el = shown.get(key)
+      const recent: number[] = []
+      feed.forEach((e, i) => { if (e.tick <= now && e.tick > now - NEWS_TICKS) recent.push(i) })
+      recent.splice(0, recent.length - 3)
+      for (const [i, el] of shown) if (!recent.includes(i)) { el.remove(); shown.delete(i) }
+      for (const i of recent) {
+        let el = shown.get(i)
         if (!el) {
-          const won = e.to === me, name = replay.map.regions[e.region].name
-          el = h('div', { class: won ? 'won' : 'lost', title: won ? `你攻下${name}` : `${name}被${sideName(e.to)}攻下` },
-            h('span', { class: 'digits' }, clock(e.tick / TICKS_PER_SECOND)), sideIcon(e.to),
-            h('span', {}, won ? `攻下${name}` : `${name}陷落`))
-          shown.set(key, el)
+          el = feed[i].make()
+          shown.set(i, el)
           news.append(el)
         }
-        el.style.opacity = String(Math.min(1, (NEWS_TICKS - (now - e.tick)) / NEWS_FADE))
+        el.style.opacity = String(Math.min(1, (NEWS_TICKS - (now - feed[i].tick)) / NEWS_FADE))
       }
     }
     stage.append(news)

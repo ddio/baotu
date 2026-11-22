@@ -247,13 +247,15 @@ button.danger { border-color: var(--seal); color: var(--seal); }
 
 .visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 
-/* ---- 重播的戰報：你攻下、失守的據點，像貼在圖角的小紙條 ---- */
+/* ---- 重播的戰報：你攻下、失守的據點和打過的大仗，像貼在圖角的小紙條 ---- */
 .news { position: absolute; right: 16px; bottom: 16px; z-index: 2; display: flex; flex-direction: column; align-items: flex-end; gap: 4px; pointer-events: none; }
 .news > div { display: flex; align-items: center; gap: 6px; padding: 2px 10px 2px 8px; background: var(--paper); border: 1.2px solid var(--ink); font-size: 0.9375rem; font-weight: 700; line-height: 1.6; animation: news-in 0.22s ease-out; }
 /* 失守用反白，不用紅色：紅色已經是其中一方的顏色 */
 .news > .lost { background: var(--ink); color: var(--paper); }
 .news .digits { font-size: 0.8125rem; font-weight: 400; opacity: 0.75; }
 .news svg { width: 16px; height: 16px; flex: none; }
+/* 大仗後面的折損：折＝你少的兵，殲＝對方少的兵 */
+.news .toll { margin-left: 2px; opacity: 1; white-space: nowrap; }
 .news > .lost svg path { stroke: var(--paper) !important; }
 @keyframes news-in { from { transform: translateY(8px); } }
 @media (prefers-reduced-motion: reduce) { .news > div { animation: none; } }

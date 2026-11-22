@@ -336,7 +336,32 @@ export function startApp(root: HTMLElement): void {
     const replay = new Replay(rec, map)
     const ac = new AbortController()
     let raf = 0, last = performance.now(), acc = 0, playing = true, speed = 2
-    enter(() => { ac.abort(); cancelAnimationFrame(raf) })
+    // 戰報：你攻下、失守的據點，在地圖角落留幾秒。照時間軸上的位置算，拉時間軸也對得上
+    const me = rec.config.human
+    const mine = replay.takes.filter((e) => me !== 0 && (e.to === me || e.from === me))
+    const news = h('div', { class: 'news' })
+    const shown = new Map<number, HTMLElement>()
+    const NEWS_TICKS = 80, NEWS_FADE = 20
+    const report = () => {
+      const now = replay.state.tick
+      const recent = mine.filter((e) => e.tick <= now && e.tick > now - NEWS_TICKS).slice(-3)
+      for (const [tick, el] of shown) if (!recent.some((e) => e.tick * 64 + e.region === tick)) { el.remove(); shown.delete(tick) }
+      for (const e of recent) {
+        const key = e.tick * 64 + e.region
+        let el = shown.get(key)
+        if (!el) {
+          const won = e.to === me, name = map.regions[e.region].name
+          el = h('div', { class: won ? 'won' : 'lost', title: won ? `你攻下${name}` : `${name}被${sideName(e.to)}攻下` },
+            h('span', { class: 'digits' }, clock(e.tick / TICKS_PER_SECOND)), sideIcon(e.to),
+            h('span', {}, won ? `攻下${name}` : `${name}陷落`))
+          shown.set(key, el)
+          news.append(el)
+        }
+        el.style.opacity = String(Math.min(1, (NEWS_TICKS - (now - e.tick)) / NEWS_FADE))
+      }
+    }
+    stage.append(news)
+    enter(() => { ac.abort(); cancelAnimationFrame(raf); news.remove() })
 
     const forces = forcesBar(rec.config.players)
     bar.replaceChildren(forces.el, h('button', { class: 'small', onclick: () => showRecords() }, '離開重播'))
@@ -373,6 +398,7 @@ export function startApp(root: HTMLElement): void {
         if (stepped && (replay.state.tick % 5 === 0 || replay.done)) sync()
       }
       view.render(replay.state, playing ? Math.min(1, acc / TICK_MS) : 0, marks)
+      report()
     }
     sync()
     raf = requestAnimationFrame(frame)

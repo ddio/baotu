@@ -5,7 +5,7 @@ import { createGame, hashState, issue, step, totals } from './game'
 import { buildGraph, type Graph } from './graph'
 import { type Match, type MatchConfig, SAMPLE_TICKS } from './match'
 import { RULES_VERSION } from './rules'
-import type { GameState, MapData } from './types'
+import type { GameState, MapData, Take } from './types'
 
 export const RECORD_FORMAT = 1
 export const MAX_RECORDS = 32
@@ -93,6 +93,8 @@ export class Replay {
   state: GameState
   /** 整局的兵力走勢（建立時先跑完一遍算出來） */
   readonly history: number[][] = []
+  /** 整局裡每一次換主人，照時間排（建立時一起算出來）；tick 是發生之後的那一拍 */
+  readonly takes: (Take & { tick: number })[] = []
   /** 跑完整局後的雜湊與記錄上的一不一樣 */
   readonly faithful: boolean
   private next = 0
@@ -104,6 +106,7 @@ export class Replay {
     this.history.push(totals(this.state))
     while (this.state.tick < rec.ticks && !this.state.winner) {
       this.step()
+      for (const e of this.state.takes) this.takes.push({ ...e, tick: this.state.tick })
       if (this.state.tick % SAMPLE_TICKS === 0) this.history.push(totals(this.state))
     }
     this.faithful = hashState(this.state) === rec.hash

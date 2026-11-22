@@ -40,6 +40,23 @@ describe('記錄與重播', () => {
     expect(hashState(a.state)).toBe(hashState(b.state))
   })
 
+  it('重播先把整局的易手記下來：哪一拍、哪一區、從誰換到誰', () => {
+    const r = new Replay(rec, map)
+    expect(r.takes.length).toBeGreaterThan(10)
+    expect(r.takes.map((e) => e.tick)).toEqual(r.takes.map((e) => e.tick).sort((x, y) => x - y))
+    for (const e of r.takes.filter((_, i) => i % 5 === 0)) {
+      expect(e.from).not.toBe(e.to)
+      r.seek(e.tick - 1)
+      expect(r.state.regions[e.region].owner).toBe(e.from)
+      r.seek(e.tick)
+      expect(r.state.regions[e.region].owner).toBe(e.to)
+    }
+    // 最後贏的那一方，手上的區都是打下來的或起點
+    r.seek(rec.ticks)
+    const last = new Map(r.takes.map((e) => [e.region, e.to]))
+    r.state.regions.forEach((x, i) => { if (last.has(i)) expect(x.owner).toBe(last.get(i)) })
+  })
+
   it('中途放棄的局也能重播', () => {
     const half = new Match(map, config(8, { human: 1 }))
     for (let i = 0; i < 300; i++) {

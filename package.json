@@ -11,9 +11,12 @@
     "preview": "vite preview",
     "test": "vitest run",
     "build:map": "node tools/build-map.mjs",
-    "balance": "BALANCE=1 vitest run --disableConsoleIntercept"
+    "balance": "BALANCE=1 vitest run --disableConsoleIntercept",
+    "freeze": "node tools/freeze.mjs",
+    "fixture": "FIXTURE=1 vitest run tests/engines.test.ts"
   },
   "devDependencies": {
+    "@types/node": "^22.20.5",
     "taiwan-atlas": "^2021.9.20",
     "topojson-client": "^3.1.0",
     "topojson-simplify": "^3.0.3",

@@ -43,8 +43,10 @@ export const RULES = {
    * 砲台：射程（地圖座標的單位，量的是軍隊在路上的位置到砲台據點的直線距離）內的敵軍，
    * 每隔 every 拍每支少一個兵。中立的砲台誰都打。
    * far：射程跟別人不一樣的砲台（照區的代號）。
+   * 澎湖 130：三條往南的航線大半都在射程裡，但還打不到本島的據點（最近的鹽水港離 143）。
+   * 試過 150 以上：沒人佔的澎湖會一直打鹽水港進出的軍隊，從鹽水港起家的勝率掉一半。
    */
-  fort: { range: 80, every: 3, far: {} as Readonly<Record<string, number>> },
+  fort: { range: 80, every: 3, far: { penghu: 130 } as Readonly<Record<string, number>> },
   /** 糧倉：每次換人佔領時加的兵 */
   granaryBonus: 15,
 } as const

@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { loadMap, MAPS } from '../src/maps'
+import { buildGraph, inRange } from '../src/sim/graph'
+import { RULES } from '../src/sim/rules'
 
 const map = MAPS.taiwan1901
 const id = (name: string) => map.regions.findIndex((r) => r.name === name)
@@ -59,6 +61,18 @@ describe('臺灣二十廳地圖', () => {
   it('紅頭嶼只靠兩條航線：臺東、恆春', () => {
     expect(lanesOf('紅頭嶼')).toEqual(['臺東:sea', '恆春:sea'].sort())
     expect(map.regions[id('紅頭嶼')].trait).toBe('none')
+  })
+
+  it('澎湖的砲打得比別的砲台遠，但打不到本島任何一個據點', () => {
+    const g = buildGraph(map)
+    const far = RULES.fort.far as Record<string, number>
+    for (const f of g.forts) expect(g.range[f]).toBe((far[map.regions[f].id] ?? RULES.fort.range) * 10)
+    expect(g.range[id('澎湖')]).toBeGreaterThan(g.range[id('基隆')])
+    // 射程裡有別人的據點的話，沒人佔的澎湖會從開局就一直打那一區進出的軍隊
+    map.regions.forEach((_, i) => { if (i !== id('澎湖')) expect(inRange(g, id('澎湖'), g.x[i], g.y[i])).toBe(false) })
+    // 往鹽水港的航線大半在射程裡
+    const [x, y] = [(g.x[id('澎湖')] + g.x[id('鹽水港')]) >> 1, (g.y[id('澎湖')] + g.y[id('鹽水港')]) >> 1]
+    expect(inRange(g, id('澎湖'), x, y)).toBe(true)
   })
 
   it('險航線是一條繞過西海岸的線：比直線長，離沿途的據點夠遠，不出圖框', () => {

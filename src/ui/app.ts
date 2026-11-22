@@ -1,7 +1,7 @@
 // 各個畫面：開局、對戰、結束、記錄、重播。地圖只有一張，畫面之間換的是上下兩列與蓋在上面的紙片。
 import { DEFAULT_MAP, MAPS } from '../maps'
 import type { Difficulty } from '../sim/ai'
-import { canSend, createGame, sendAmount, shellLoss } from '../sim/game'
+import { canSend, createGame, forecast, sendAmount } from '../sim/game'
 import { legTicks, reach, route, stopIndex } from '../sim/graph'
 import { Match } from '../sim/match'
 import { addRecord, type GameRecord, makeRecord, MAX_RECORDS, parseRecord, playable, Replay, type Result } from '../sim/record'
@@ -182,15 +182,14 @@ export function startApp(root: HTMLElement): void {
       const n = sendAmount(state.regions[from].units)
       const secs = Math.max(1, Math.round(p.ticks / TICKS_PER_SECOND))
       const trip = `約 ${secs} 秒到${p.ridge ? '（要翻山）' : ''}`
-      // 路上經過別人砲台的射程，會一路被打
-      const lost = shellLoss(state, graph, p.path, p.stop, map.regions[from].trait === 'post', ME, n)
-      const left = n - lost
-      if (target.owner === ME) return [`${a.name} → ${b.name}　增援 ${n} 兵`, `${trip}${lost ? `，路上會被砲台打掉約 ${lost} 兵` : ''}。`]
-      const fort = lost ? `，路上會被砲台打掉約 ${lost} 兵、剩 ${left}` : ''
-      const odds = left > target.units ? '拿得下' : left > 0 ? '拿不下，只能削弱守軍' : '走不到'
+      // 照規則先跑一遍：砲台一路上（連在城外打的時候）打掉幾個、守軍邊打邊長，都算在內
+      const f = forecast(state, map, graph, from, to)
+      const fort = f?.shelled ? `，砲台會打掉你約 ${f.shelled} 兵` : ''
+      if (target.owner === ME) return [`${a.name} → ${b.name}　增援 ${n} 兵`, `${trip}${fort}。`]
+      const odds = !f ? '' : f.mine ? `拿得下，會剩約 ${f.units} 兵` : `拿不下，守軍會剩約 ${f.units}`
       const head = `${a.name} → ${b.name}　派 ${n} 兵`
-      if (p.at !== to) return [head, `路上的${map.regions[p.at].name}不是你的，會先在那裡開打：守軍 ${target.units}${fort}，${trip}，${odds}。`]
-      return [head, `守軍 ${target.units}${fort}。${trip}，${odds}。`]
+      if (p.at !== to) return [head, `路上的${map.regions[p.at].name}不是你的，會先在那裡開打：守軍 ${target.units}${fort}，${trip}${odds && '，' + odds}。`]
+      return [head, `守軍 ${target.units}${fort}。${trip}${odds && '，' + odds}。`]
     }
     /** 把準備派兵的路線畫在地圖上 */
     const drawAim = () => {
@@ -467,7 +466,7 @@ export function startApp(root: HTMLElement): void {
         h('li', {}, `每一區上的數字是兵力。你的區會自己長兵，長到 ${RULES.cap.normal}（大城 ${RULES.cap.city}、砲台 ${RULES.cap.fort}）為止；中立的區不會長。`),
         h('li', {}, '從你的區拖到另一區，那一區的兵就全部派出去。也可以先點自己的區，再點目標。'),
         h('li', {}, '兵沿著相鄰的區走，會自己找路，拉線時看得到路線。路上第一個不是你的區，就是開打的地方。'),
-        h('li', {}, '到了別人的區就開打，一兵換一兵；打贏了，剩下的兵留下來佔領。'),
+        h('li', {}, '到了別人的區，兵會停在城外開打：雙方一個換一個，每秒各少 10 個。守軍先打光，剩下的兵就進城佔領。'),
         h('li', {}, '路上迎面遇到別家的兵也會打起來，一兵換一兵，兵多的帶著剩下的繼續走。'),
         h('li', {}, `派兵後，那一區要等 ${RULES.cooldownTicks / TICKS_PER_SECOND} 秒才能再派。`),
         h('li', {}, '翻越中央山脈（棕色的山線）要花三倍時間；澎湖只能走虛線標出的三條航線。')),

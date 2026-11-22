@@ -1,0 +1,314 @@
+// 各個畫面：開局、對戰、結束。地圖只有一張，畫面之間換的是上下兩列與蓋在上面的紙片。
+import { DEFAULT_MAP, MAPS } from '../maps'
+import type { Difficulty } from '../sim/ai'
+import { attackStrength, canSend, createGame, sendAmount } from '../sim/game'
+import { pathTo, reach } from '../sim/graph'
+import { Match } from '../sim/match'
+import { RULES, TICKS_PER_SECOND } from '../sim/rules'
+import { pickStarts } from '../sim/setup'
+import type { GameState } from '../sim/types'
+import { clock, h } from './dom'
+import { type Marks, MapView } from './mapview'
+import { loadPrefs, savePrefs } from './store'
+import { DIFFICULTY, sideIcon, sideName, SIDES, TRAITS } from './theme'
+
+const ME = 1
+const TICK_MS = 1000 / TICKS_PER_SECOND
+const LEVELS: Difficulty[] = ['easy', 'normal', 'hard']
+
+const newSeed = () => crypto.getRandomValues(new Uint32Array(1))[0] >>> 1
+const noMarks = (me = 0): Marks => ({ me, selected: -1, targets: null, hover: -1, picked: -1 })
+
+export function startApp(root: HTMLElement): void {
+  const map = MAPS[DEFAULT_MAP]
+  const view = new MapView(map)
+  const bar = h('header', { class: 'bar' })
+  const stage = h('main', { class: 'stage' }, view.svg)
+  const panel = h('footer', { class: 'panel' })
+  root.append(bar, stage, panel)
+
+  /** 離開目前畫面時要做的收尾（停掉動畫、拿掉事件） */
+  let leave: (() => void) | null = null
+  const enter = (cleanup: () => void) => { leave?.(); leave = cleanup }
+
+  // ---- 蓋在上面的紙片 ----
+  let veil: HTMLElement | null = null
+  const closeSlip = () => { veil?.remove(); veil = null }
+  const openSlip = (...kids: (Node | string)[]) => {
+    closeSlip()
+    const slip = h('div', { class: 'slip', role: 'dialog', 'aria-modal': 'true', tabindex: '-1' }, ...kids)
+    veil = h('div', { class: 'veil' }, slip)
+    root.append(veil)
+    slip.focus()
+  }
+
+  const regionText = (i: number, state: GameState): [string, string] => {
+    const r = map.regions[i], st = state.regions[i], t = TRAITS[r.trait]
+    const owner = st.owner === 0 ? '中立' : sideName(st.owner)
+    return [`${r.name}廳　${owner}　${st.units} 兵`, `${t ? `【${t.name}】${t.text}。` : ''}今${r.today}。`]
+  }
+
+  /** 上方的各方兵力條 */
+  const forcesBar = (players: number) => {
+    const segs = Array.from({ length: players }, (_, i) => {
+      const p = i + 1, num = h('span', {})
+      const el = h('div', { class: 'seg', title: sideName(p) }, sideIcon(p, SIDES[p].ink, SIDES[p].ink), num)
+      el.style.background = SIDES[p].color
+      el.style.color = SIDES[p].ink
+      return { el, num }
+    })
+    const el = h('div', { class: 'forces', role: 'img', 'aria-label': '各方兵力' }, ...segs.map((x) => x.el))
+    const update = (state: GameState) => {
+      const t = new Array<number>(players + 1).fill(0)
+      for (const r of state.regions) t[r.owner] += r.units
+      for (const a of state.armies) t[a.owner] += a.units
+      segs.forEach((x, i) => {
+        x.num.textContent = String(t[i + 1])
+        x.el.style.flexGrow = String(Math.max(t[i + 1], 1))
+        x.el.classList.toggle('out', !state.alive[i + 1])
+      })
+    }
+    return { el, update }
+  }
+
+  // ================= 開局 =================
+  function showStart(picked = -1): void {
+    closeSlip()
+    const ac = new AbortController()
+    enter(() => ac.abort())
+    const prefs = loadPrefs()
+    const state = createGame(map, { players: 0, starts: [] })
+    const head = h('div', { class: 'head' }), body = h('div', { class: 'body' })
+    const go = h('button', { class: 'primary go', onclick: () => startGame(picked, prefs.opponents, prefs.difficulty) }, '開始')
+
+    const choice = <T,>(label: string, options: [T, string][], get: () => T, set: (v: T) => void) => {
+      const buttons = options.map(([v, text]) => h('button', { type: 'button', onclick: () => { set(v); savePrefs(prefs); sync() } }, text))
+      const sync = () => buttons.forEach((b, i) => b.setAttribute('aria-pressed', String(options[i][0] === get())))
+      sync()
+      return h('span', { class: 'field' }, label, h('span', { class: 'choice', role: 'group', 'aria-label': label }, ...buttons))
+    }
+    const draw = () => {
+      view.render(state, 0, { ...noMarks(), picked })
+      if (picked < 0) {
+        head.textContent = '選一個廳起家'
+        body.textContent = '點地圖上的任何一區。把其他勢力都趕出去，全島歸你就贏了。'
+      } else {
+        const [, detail] = regionText(picked, state)
+        head.textContent = `從${map.regions[picked].name}廳起家`
+        body.textContent = detail
+      }
+      go.disabled = picked < 0
+    }
+    view.svg.addEventListener('pointerdown', (e) => {
+      const r = view.regionAt(e.clientX, e.clientY)
+      if (r >= 0) { picked = r; draw() }
+    }, { signal: ac.signal })
+
+    bar.replaceChildren(h('h1', {}, '堡圖'), h('span', { class: 'grow' }),
+      h('button', { class: 'small', onclick: showHelp }, '玩法'))
+    panel.replaceChildren(head, body, h('div', { class: 'row' },
+      choice('對手', [[2, '2 家'], [3, '3 家']], () => prefs.opponents, (v) => { prefs.opponents = v }),
+      choice('難度', LEVELS.map((l) => [l, DIFFICULTY[l]] as [Difficulty, string]), () => prefs.difficulty, (v) => { prefs.difficulty = v }),
+      go))
+    draw()
+  }
+
+  function startGame(start: number, opponents: number, difficulty: Difficulty): void {
+    const seed = newSeed(), players = opponents + 1
+    play(new Match(map, { players, starts: pickStarts(map, start, players, seed), human: ME, difficulty, seed }))
+  }
+
+  // ================= 對戰 =================
+  function play(match: Match): void {
+    closeSlip()
+    const ac = new AbortController()
+    const { state, graph, config } = match
+    const marks = noMarks(ME)
+    let raf = 0, last = performance.now(), acc = 0
+    let speed = 1, paused = false, ended = false
+    let dragging = false, moved = false, downX = 0, downY = 0
+    let inspected = -1
+    /** 從選中的區出發，到各區要幾拍 */
+    let eta: number[] = []
+    let prev: number[] = []
+
+    enter(() => { ac.abort(); cancelAnimationFrame(raf); view.clearAim() })
+
+    const forces = forcesBar(config.players)
+    const time = h('span', { class: 'digits note' }, '0:00')
+    const speedBtn = h('button', { class: 'small digits', 'aria-label': '切換速度', onclick: () => { speed = speed === 1 ? 2 : 1; speedBtn.textContent = speed + '×' } }, '1×')
+    bar.replaceChildren(forces.el, time, speedBtn, h('button', { class: 'small', onclick: () => pause() }, '暫停'))
+    const head = h('div', { class: 'head' }), body = h('div', { class: 'body' })
+    panel.replaceChildren(head, body)
+    let shown = ''
+    const say = (a: string, b: string) => {
+      if (a + '\n' + b === shown) return
+      shown = a + '\n' + b
+      head.textContent = a
+      body.textContent = b
+    }
+
+    const select = (r: number) => {
+      marks.selected = r
+      marks.hover = -1
+      if (r < 0) { marks.targets = null; return }
+      const rr = reach(graph, state, r, ME, map.regions[r].trait === 'post')
+      eta = rr.dist
+      prev = rr.prev
+      marks.targets = eta.map((d, i) => i !== r && d < Infinity)
+    }
+    const mine = (r: number) => r >= 0 && state.regions[r].owner === ME
+    const order = (from: number, to: number) => { match.order(from, to); select(-1) }
+
+    const orderText = (from: number, to: number): [string, string] => {
+      const a = map.regions[from], b = map.regions[to], target = state.regions[to]
+      const n = sendAmount(state.regions[from].units)
+      const secs = Math.max(1, Math.round(eta[to] / TICKS_PER_SECOND))
+      const path = pathTo({ dist: eta, prev }, to) ?? []
+      let ridge = false
+      for (let i = 0; i + 1 < path.length; i++) if (graph.links[path[i]].find((l) => l.to === path[i + 1])?.kind === 'mountain') ridge = true
+      const trip = `約 ${secs} 秒到${ridge ? '（要翻山）' : ''}`
+      if (target.owner === ME) return [`${a.name} → ${b.name}　增援 ${n} 兵`, `${trip}。`]
+      const power = attackStrength(map, to, n)
+      const fort = power !== n ? `，砲台讓你的兵只算 ${power}` : ''
+      return [`${a.name} → ${b.name}　派 ${n} 兵`, `守軍 ${target.units}${fort}。${trip}，${power > target.units ? '拿得下' : '拿不下，只能削弱守軍'}。`]
+    }
+    const updatePanel = () => {
+      if (marks.selected >= 0 && marks.hover >= 0) say(...orderText(marks.selected, marks.hover))
+      else if (marks.selected >= 0) {
+        const r = map.regions[marks.selected]
+        say(`${r.name}廳　派出 ${sendAmount(state.regions[marks.selected].units)} 兵`, '拖到目標放開，或直接點目標。圈起來的區都到得了；再點一次取消。')
+      } else if (inspected >= 0) say(...regionText(inspected, state))
+      else say('從你的區拖到目標，派出一半的兵', '藍色圓形是你。兵會自己長，派兵後那一區要等幾秒才能再派。')
+    }
+
+    // ---- 操作 ----
+    const svg = view.svg, opt = { signal: ac.signal }
+    svg.addEventListener('pointerdown', (e) => {
+      if (paused || ended || !e.isPrimary) return
+      const r = view.regionAt(e.clientX, e.clientY)
+      if (marks.selected >= 0) {
+        const from = marks.selected
+        if (r >= 0 && r !== from && marks.targets?.[r]) { order(from, r); return }
+        select(-1)
+        if (r === from) return
+      }
+      inspected = r
+      if (mine(r) && canSend(state, r)) {
+        select(r)
+        dragging = true
+        moved = false
+        downX = e.clientX
+        downY = e.clientY
+        svg.setPointerCapture(e.pointerId)
+      }
+    }, opt)
+    svg.addEventListener('pointermove', (e) => {
+      if (marks.selected < 0 || paused || ended) return
+      if (!dragging && e.pointerType !== 'mouse') return
+      const r = view.regionAt(e.clientX, e.clientY)
+      marks.hover = r >= 0 && r !== marks.selected && marks.targets?.[r] ? r : -1
+      if (!dragging) return
+      if (Math.hypot(e.clientX - downX, e.clientY - downY) > 8) moved = true
+      if (!moved) return
+      if (marks.hover >= 0) view.setAim(marks.selected, map.regions[marks.hover].x, map.regions[marks.hover].y, true)
+      else { const p = view.point(e.clientX, e.clientY); view.setAim(marks.selected, p.x, p.y, false) }
+    }, opt)
+    const release = (cancelled: boolean) => {
+      if (!dragging) return
+      dragging = false
+      view.clearAim()
+      if (cancelled) select(-1)
+      else if (marks.hover >= 0) order(marks.selected, marks.hover)
+      else if (moved) select(-1)
+      // 沒有拖動就放開＝點選，保持選中，等下一次點目標
+    }
+    svg.addEventListener('pointerup', () => release(false), opt)
+    svg.addEventListener('pointercancel', () => release(true), opt)
+
+    // ---- 暫停 ----
+    const resume = () => { paused = false; last = performance.now(); closeSlip() }
+    const pause = () => {
+      if (ended || paused) return
+      paused = true
+      release(true)
+      openSlip(h('h2', {}, '暫停'),
+        h('p', { class: 'lead' }, `已經打了 ${clock(state.tick / TICKS_PER_SECOND)}。`),
+        h('div', { class: 'actions' },
+          h('button', { class: 'primary', onclick: resume }, '繼續'),
+          h('button', { onclick: () => { ended = true; startGame(config.starts[0], config.players - 1, config.difficulty) } }, '重來'),
+          h('button', { onclick: () => { ended = true; showStart(config.starts[0]) } }, '回主畫面')))
+    }
+    document.addEventListener('visibilitychange', () => { if (document.hidden) pause() }, opt)
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape' || e.key === 'p') { if (paused) resume(); else pause() }
+    }, opt)
+
+    // ---- 結束 ----
+    const end = () => {
+      ended = true
+      const won = state.winner === ME
+      select(-1)
+      view.clearAim()
+      const startName = map.regions[config.starts[0]].name
+      openSlip(
+        h('h2', {}, won ? '全島底定' : '領地盡失'),
+        h('p', { class: 'lead' }, `從${startName}廳起家，對 ${config.players - 1} 家，難度${DIFFICULTY[config.difficulty]}，打了 ${clock(state.tick / TICKS_PER_SECOND)}。`),
+        h('div', { class: 'actions' },
+          h('button', { class: 'primary', onclick: () => startGame(config.starts[0], config.players - 1, config.difficulty) }, '再來一局'),
+          h('button', { onclick: () => showStart() }, '換個起點')))
+    }
+
+    // ---- 主迴圈 ----
+    const afterTick = () => {
+      if (marks.selected >= 0) {
+        if (!mine(marks.selected)) { dragging = false; view.clearAim(); select(-1) }
+        else { const hover = marks.hover; select(marks.selected); marks.hover = hover >= 0 && marks.targets?.[hover] ? hover : -1 }
+      }
+      if (state.tick % 5 === 0) {
+        forces.update(state)
+        time.textContent = clock(state.tick / TICKS_PER_SECOND)
+      }
+    }
+    const frame = (now: number) => {
+      raf = requestAnimationFrame(frame)
+      const dt = Math.min(250, now - last)
+      last = now
+      if (!paused && !ended) {
+        acc += dt * speed
+        while (acc >= TICK_MS && !ended) {
+          acc -= TICK_MS
+          match.tick()
+          afterTick()
+          if (match.over) { forces.update(state); end() }
+        }
+      }
+      view.render(state, ended ? 0 : Math.min(1, acc / TICK_MS), marks)
+      updatePanel()
+    }
+    forces.update(state)
+    raf = requestAnimationFrame(frame)
+  }
+
+  // ================= 玩法 =================
+  function showHelp(): void {
+    const li = (mark: string, text: string) => h('li', {}, h('span', { class: 'mark' }, mark), text)
+    openSlip(h('h2', {}, '玩法'),
+      h('p', {}, '地圖是 1901 年的臺灣二十廳，加上後來的花蓮港廳，共 21 區。選一區起家，把其他勢力都趕出去就贏了。'),
+      h('ul', {},
+        h('li', {}, '每一區上的數字是兵力。你的區會自己長兵，長到上限為止；中立的區不會長。'),
+        h('li', {}, '從你的區拖到另一區，就派出一半的兵。也可以先點自己的區，再點目標。'),
+        h('li', {}, '兵只能走相鄰的區；中途經過的都得是你的區。'),
+        h('li', {}, '到了別人的區就開打，一兵換一兵；打贏了，剩下的兵留下來佔領。'),
+        h('li', {}, `派兵後，那一區要等 ${RULES.cooldownTicks / TICKS_PER_SECOND} 秒才能再派。`),
+        h('li', {}, '翻越中央山脈（棕色的山線）要花三倍時間；澎湖只能走虛線標出的三條航線。')),
+      h('h3', {}, '有特色的區'),
+      h('ul', { class: 'plain' }, ...(['city', 'fort', 'granary', 'post'] as const).map((k) => li(TRAITS[k]!.mark, `${TRAITS[k]!.name}：${TRAITS[k]!.text}。`))),
+      h('h3', {}, '誰是誰'),
+      h('p', {}, ...[1, 2, 3, 4].flatMap((p) => [h('span', { class: 'who' }, sideIcon(p), sideName(p)), '　'])),
+      h('p', { class: 'lead' }, '分區是用現在的鄉鎮界拼出來的，和當年的界線不完全一樣。'),
+      h('div', { class: 'actions' }, h('button', { class: 'primary', onclick: closeSlip }, '知道了')))
+  }
+
+  showStart()
+}

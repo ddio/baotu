@@ -1,0 +1,176 @@
+:root {
+  --paper: #ece5cf;
+  --paper-deep: #e0d7bb;
+  --desk: #cfc6a8;
+  --ink: #22282b;
+  --ink-soft: #565a55;
+  --sea: #dde2d6;
+  --sea-line: #8fa9b3;
+  --ridge: #8b5e3c;
+  --seal: #a8321f;
+  --serif: 'Noto Serif TC', 'Noto Serif CJK TC', 'Source Han Serif TC', 'Songti TC', 'PMingLiU', 'MingLiU', serif;
+  --digits: Georgia, 'Times New Roman', 'Noto Serif TC', serif;
+}
+
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  background: var(--desk);
+  color: var(--ink);
+  font-family: var(--serif);
+  font-size: 16px;
+  line-height: 1.6;
+  overscroll-behavior: none;
+  -webkit-text-size-adjust: 100%;
+  -webkit-tap-highlight-color: transparent;
+}
+
+#app {
+  position: relative;
+  height: 100vh;
+  height: 100dvh;
+  max-width: 760px;
+  margin: 0 auto;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  background: var(--paper);
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+/* ---- 上方那一列 ---- */
+.bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 52px;
+  padding: 4px 10px;
+  border-bottom: 1.5px solid var(--ink);
+}
+.bar h1 { margin: 0; font-size: 1.25rem; font-weight: 700; letter-spacing: 0.2em; }
+.grow { flex: 1; min-width: 0; }
+.bar .note { font-size: 0.875rem; color: var(--ink-soft); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+button, .button {
+  font: inherit;
+  color: var(--ink);
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  border-radius: 2px;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 14px;
+  cursor: pointer;
+  touch-action: manipulation;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  white-space: nowrap;
+}
+button:hover { background: var(--paper-deep); }
+button:active { transform: translateY(1px); }
+button:focus-visible, input:focus-visible, .button:focus-within { outline: 3px solid #1f5fa8; outline-offset: 2px; }
+button.primary { background: var(--ink); color: var(--paper); }
+button.primary:hover { background: #3a4246; }
+button:disabled { opacity: 0.4; cursor: default; }
+button.small { min-height: 36px; min-width: 36px; padding: 0 10px; font-size: 0.875rem; }
+button.danger { border-color: var(--seal); color: var(--seal); }
+
+/* 幾選一 */
+.choice { display: inline-flex; }
+.choice button { border-radius: 0; margin-left: -1.5px; padding: 0 12px; }
+.choice button:first-child { margin-left: 0; }
+.choice button[aria-pressed='true'] { background: var(--ink); color: var(--paper); }
+
+/* ---- 各方兵力 ---- */
+.forces { display: flex; gap: 2px; height: 30px; flex: 1; min-width: 0; }
+.forces .seg {
+  display: flex; align-items: center; justify-content: center; gap: 4px;
+  min-width: 0; overflow: hidden; border-radius: 2px;
+  font-family: var(--digits); font-weight: 700; font-size: 0.9375rem;
+  transition: flex-grow 0.3s;
+}
+.forces svg { width: 13px; height: 13px; flex: none; }
+.forces .seg.out { display: none; }
+
+/* ---- 地圖 ---- */
+.stage { position: relative; min-height: 0; overflow: hidden; background: var(--sea); }
+/* 圖框：外粗內細的雙線，畫在整個地圖區的邊上 */
+.stage::after { content: ''; position: absolute; inset: 4px; border: 2px solid var(--ink); outline: 1px solid var(--ink); outline-offset: -6px; pointer-events: none; }
+.map { width: 100%; height: 100%; display: block; overflow: visible; touch-action: none; }
+.sea-base { fill: var(--sea); }
+.sea-line { stroke: var(--sea-line); stroke-width: 0.6; opacity: 0.55; }
+.shore { fill: none; stroke: var(--sea); stroke-linejoin: round; }
+.shore-2 { stroke-width: 26; opacity: 0.9; }
+.shore-1 { stroke-width: 11; stroke: #c3d2d2; }
+.land { stroke: var(--ink); stroke-width: 0.9; stroke-linejoin: round; transition: fill 0.25s, opacity 0.2s; }
+.land.dim { opacity: 0.45; }
+.land.lit { stroke-width: 2.6; }
+.ridge { fill: none; stroke: var(--ridge); stroke-width: 9; stroke-dasharray: 1.4 3.2; opacity: 0.85; }
+.ridge-spine { fill: none; stroke: var(--ridge); stroke-width: 1.4; }
+.lane { stroke: #3d6474; stroke-width: 1.6; stroke-dasharray: 2 6; stroke-linecap: round; }
+.cartouche text { text-anchor: middle; fill: var(--ink); }
+.title { font-size: 46px; font-weight: 900; }
+.subtitle { font-size: 16px; fill: var(--ink-soft); }
+
+.stamp { stroke: var(--ink); stroke-width: 1.6; stroke-linejoin: round; transform-box: fill-box; transform-origin: center; }
+.units { font-family: var(--digits); font-weight: 700; font-size: 21px; text-anchor: middle; pointer-events: none; }
+.label { pointer-events: none; }
+.name { font-size: 17px; font-weight: 700; text-anchor: middle; fill: var(--ink); paint-order: stroke; stroke: var(--paper); stroke-width: 3.5; stroke-linejoin: round; }
+.seal { fill: var(--seal); }
+.seal-text { font-size: 17px; font-weight: 700; text-anchor: middle; fill: #fbf3e4; }
+.halo { fill: none; stroke: none; }
+.node.selected .halo { stroke: var(--ink); stroke-width: 3.5; }
+.node.target .halo { stroke: var(--ink); stroke-width: 1.6; stroke-dasharray: 3 4; }
+.node.hover .halo { stroke: var(--ink); stroke-width: 3.5; fill: rgba(34, 40, 43, 0.12); }
+.node.picked .halo { stroke: var(--seal); stroke-width: 4; }
+.cooldown { fill: none; stroke-width: 4; opacity: 0.9; }
+.node.cooling .stamp, .node.cooling .units { opacity: 0.55; }
+.aim { stroke: var(--ink-soft); stroke-width: 3; stroke-dasharray: 5 6; stroke-linecap: round; pointer-events: none; }
+.aim.ok { stroke: var(--ink); stroke-width: 4.5; stroke-dasharray: none; }
+.army { pointer-events: none; }
+.army-shape { stroke: var(--ink); stroke-width: 1.2; }
+.army-units { font-family: var(--digits); font-weight: 700; font-size: 15px; text-anchor: middle; fill: var(--ink); paint-order: stroke; stroke: var(--paper); stroke-width: 3; }
+.taken { animation: taken 0.45s ease-out; }
+@keyframes taken { 0% { transform: scale(1.7); } 100% { transform: scale(1); } }
+
+/* ---- 下方的說明與控制 ---- */
+.panel { border-top: 1.5px solid var(--ink); padding: 8px 12px 10px; min-height: 104px; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
+.panel .head { font-weight: 700; font-size: 1.0625rem; line-height: 1.35; }
+.panel .body { font-size: 0.9375rem; color: var(--ink-soft); line-height: 1.45; min-height: 2.9em; }
+.panel .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.panel .go { margin-left: auto; min-width: 96px; }
+.panel label, .panel .field { display: inline-flex; align-items: center; gap: 6px; font-size: 0.9375rem; }
+.panel input[type='range'] { flex: 1; min-width: 120px; accent-color: var(--ink); height: 44px; }
+.digits { font-family: var(--digits); font-variant-numeric: tabular-nums; }
+.mark { display: inline-block; background: var(--seal); color: #fbf3e4; font-weight: 700; font-size: 0.8125rem; line-height: 1; padding: 3px; margin-right: 4px; vertical-align: 0.1em; }
+
+/* ---- 蓋在地圖上的紙片 ---- */
+.veil { position: absolute; inset: 0; z-index: 5; background: rgba(34, 40, 43, 0.42); display: flex; align-items: center; justify-content: center; padding: 14px; }
+.slip {
+  background: var(--paper);
+  border: 1.5px solid var(--ink);
+  outline: 1px solid var(--ink);
+  outline-offset: 3px;
+  width: 100%; max-width: 440px; max-height: 100%;
+  overflow-y: auto; overscroll-behavior: contain;
+  padding: 18px 18px 16px;
+  user-select: text; -webkit-user-select: text;
+}
+.slip h2 { margin: 0 0 4px; font-size: 1.75rem; font-weight: 900; letter-spacing: 0.12em; line-height: 1.3; }
+.slip h3 { margin: 16px 0 4px; font-size: 1rem; }
+.slip p { margin: 6px 0; }
+.slip .lead { color: var(--ink-soft); font-size: 0.9375rem; }
+.slip .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 14px; }
+.slip ul { margin: 6px 0; padding-left: 1.3em; }
+.slip li { margin: 3px 0; }
+.slip ul.plain { list-style: none; padding-left: 0; }
+.who { white-space: nowrap; }
+.who svg { width: 16px; height: 16px; vertical-align: -2px; margin-right: 4px; }
+
+@media (prefers-reduced-motion: reduce) {
+  .taken { animation: none; }
+  .land, .forces .seg { transition: none; }
+}
+

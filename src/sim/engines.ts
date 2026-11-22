@@ -17,6 +17,7 @@ export const OLDEST_KEPT = 6
 
 const FROZEN: Record<number, () => Promise<{ engine: Engine }>> = {
   6: () => import('./v6'),
+  7: () => import('./v7'),
   // freeze:insert（npm run freeze 會在這一行上面加一筆，不要改這行）
 }
 

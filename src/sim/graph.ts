@@ -1,7 +1,13 @@
 import { RULES } from './rules'
 import type { GameState, MapData, PlayerId } from './types'
 
-export interface Link { to: number; ticks: number; kind: 'land' | 'mountain' | 'sea' }
+export interface Link {
+  to: number
+  ticks: number
+  kind: 'land' | 'mountain' | 'sea'
+  /** 兩個據點在圖上的直線距離 ×10（整數） */
+  len: number
+}
 
 /** 由地圖資料算出的鄰接表，行軍時間已經換算成拍數。 */
 export interface Graph {
@@ -16,21 +22,24 @@ export interface Graph {
 
 export function buildGraph(map: MapData): Graph {
   const links: Link[][] = map.regions.map(() => [])
+  const x = map.regions.map((r) => Math.round(r.x * 10))
+  const y = map.regions.map((r) => Math.round(r.y * 10))
   for (const e of map.edges) {
     const factor = e.kind === 'mountain' ? RULES.mountainFactor : 1
     // km 只到小數一位，先乘 10 變整數，整段都是整數運算
     const kmX10 = Math.round(e.km * 10)
     const ticks = Math.max(RULES.minLegTicks, Math.round((kmX10 * factor) / RULES.speedKmPerTickX10))
-    links[e.a].push({ to: e.b, ticks, kind: e.kind })
-    links[e.b].push({ to: e.a, ticks, kind: e.kind })
+    // 整數開根號再捨去，各家瀏覽器算出來都一樣
+    const dx = x[e.b] - x[e.a], dy = y[e.b] - y[e.a]
+    const len = Math.floor(Math.sqrt(dx * dx + dy * dy))
+    links[e.a].push({ to: e.b, ticks, kind: e.kind, len })
+    links[e.b].push({ to: e.a, ticks, kind: e.kind, len })
   }
   for (const l of links) l.sort((p, q) => p.to - q.to)
   const forts: number[] = []
   map.regions.forEach((r, i) => { if (r.trait === 'fort') forts.push(i) })
   return {
-    n: map.regions.length, links, forts,
-    x: map.regions.map((r) => Math.round(r.x * 10)),
-    y: map.regions.map((r) => Math.round(r.y * 10)),
+    n: map.regions.length, links, forts, x, y,
   }
 }
 
@@ -49,6 +58,24 @@ export function legTicks(g: Graph, from: number, to: number, fast: boolean): num
   const link = g.links[from].find((l) => l.to === to)
   if (!link) throw new Error(`${from} 與 ${to} 不相鄰`)
   return fast ? Math.max(1, Math.ceil((link.ticks * RULES.postNum) / RULES.postDen)) : link.ticks
+}
+
+/**
+ * 要在 to 停下來的軍隊，走到第幾拍就到城外（離據點 RULES.gate）。
+ * 攻城和進駐都停在這裡，不走到據點中心。
+ */
+export function gateTick(g: Graph, from: number, to: number, legTicks: number): number {
+  const link = g.links[from].find((l) => l.to === to)
+  if (!link) throw new Error(`${from} 與 ${to} 不相鄰`)
+  return Math.max(1, legTicks - Math.floor((RULES.gate * 10 * legTicks) / link.len))
+}
+
+/** 在 from → to 這段路上走了 t / legTicks 的軍隊，在圖上的位置 ×10（整數）。 */
+export function posOf(g: Graph, from: number, to: number, t: number, legTicks: number): [number, number] {
+  return [
+    g.x[from] + Math.trunc(((g.x[to] - g.x[from]) * t) / legTicks),
+    g.y[from] + Math.trunc(((g.y[to] - g.y[from]) * t) / legTicks),
+  ]
 }
 
 export interface Reach {

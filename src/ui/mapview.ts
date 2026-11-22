@@ -42,8 +42,6 @@ interface NodeEls {
 const DOT = 4.2
 const DOT_GAP = 10
 const ROW_GAP = 10
-/** 去打別人的區時，軍隊停在離據點中心多遠的地方（城外） */
-const GATE = R + 7
 /** 幾個兵畫幾個點：大約三個兵一個點，最多 24 個 */
 export const dotsFor = (units: number) => Math.max(1, Math.min(24, Math.ceil(units / 3)))
 
@@ -61,14 +59,10 @@ interface ArmyEls {
   prev: number
   len: number
   prevLen: number
-  /** 這段路走到哪裡為止：進自己的區走到據點中心，打別人的區停在城外 */
-  end: number
-  /** 最後一次畫的時候：最前面一排離 from 多遠、是第幾拍、每拍走多遠 */
+  /** 最後一次畫的時候：最前面一排離 from 多遠 */
   s: number
-  time: number
-  speed: number
-  /** 規則裡已經抵達，畫面上後面幾排還在走進去 */
-  ghost: boolean
+  /** 從第幾拍開始排隊進城（規則裡停在城外，畫面上隊伍接著往據點裡走）；不是在進城是 -1 */
+  enter: number
 }
 
 export class MapView {
@@ -285,9 +279,9 @@ export class MapView {
       this.sparkTick = state.tick
       for (const c of state.clashes) this.spark(c)
       for (const e of state.gains) this.gain(e.region, e.units, state.regions[e.region].owner)
-      for (const e of state.shots) this.shot(e, state)
+      for (const e of state.shots) this.shot(e)
       // 圍城：城門口每隔幾拍閃一下
-      if (state.tick % 3 === 0) for (const a of state.armies) if (a.siege) {
+      if (state.tick % 3 === 0) for (const a of state.armies) if (a.siege && state.regions[a.path[a.leg + 1]].owner !== a.owner) {
         const from = regs[a.path[a.leg]], to = regs[a.path[a.leg + 1]]
         const len = Math.hypot(to.x - from.x, to.y - from.y), f = (len - R - 1) / len
         this.sparkAt(from.x + (to.x - from.x) * f, from.y + (to.y - from.y) * f, 8)
@@ -296,13 +290,8 @@ export class MapView {
   }
 
   /** 砲台開砲：砲口閃一下，一顆砲彈沿著一道淡線飛到軍隊身上，落點冒一小團煙。 */
-  private shot(e: Shot, state: GameState): void {
-    const regs = this.map.regions
-    const fort = regs[e.fort], a = regs[e.from], b = regs[e.to]
-    // 跟畫軍隊的地方對齊：去打別人的區只走到城外
-    const len = Math.hypot(b.x - a.x, b.y - a.y)
-    const f = (e.t / e.legTicks) * (state.regions[e.to].owner === e.owner ? 1 : (len - GATE) / len)
-    const tx = a.x + (b.x - a.x) * f, ty = a.y + (b.y - a.y) * f
+  private shot(e: Shot): void {
+    const fort = this.map.regions[e.fort], tx = e.x / 10, ty = e.y / 10
     const far = Math.hypot(tx - fort.x, ty - fort.y)
     // 砲彈從據點邊上出發；軍隊已經貼到據點上的時候就原地炸
     const start = Math.min(R + 3, far)
@@ -371,7 +360,7 @@ export class MapView {
         const g = s('g', { class: 'army' })
         const text = s('text', { class: 'army-units' })
         g.append(text)
-        el = { g, text, rows: [], owner: a.owner, units: -1, dots: 0, from: 0, to: 0, prev: -1, len: 1, prevLen: 1, end: 1, s: 0, time, speed: 0, ghost: false }
+        el = { g, text, rows: [], owner: a.owner, units: -1, dots: 0, from: 0, to: 0, prev: -1, len: 1, prevLen: 1, s: 0, enter: -1 }
         this.armies.set(a.id, el)
         this.armyLayer.append(g)
       }
@@ -386,33 +375,25 @@ export class MapView {
       el.prev = a.leg > 0 ? a.path[a.leg - 1] : -1
       el.len = dist(el.from, el.to)
       el.prevLen = el.prev >= 0 ? dist(el.prev, el.from) : 1
-      // 目的地不是自己的：整段路只走到城外，在那裡排隊開打
-      el.end = state.regions[el.to].owner === a.owner ? el.len : el.len - GATE
-      el.speed = el.end / a.legTicks
-      el.s = Math.min(1, (a.t + (a.siege ? 0 : alpha)) / a.legTicks) * el.end
-      el.time = time
-      this.place(el, el.s)
+      el.s = Math.min(1, (a.t + (a.siege ? 0 : alpha)) / a.legTicks) * el.len
+      // 進城：規則裡這支停在城外、每拍進去幾個；畫面上隊伍照原來的步伐接著走進據點（被據點蓋住），
+      // 排數跟著還沒進去的兵變少
+      if (!(a.siege && state.regions[el.to].owner === a.owner)) el.enter = -1
+      else if (el.enter < 0 || time < el.enter) el.enter = time
+      const head = el.enter < 0 ? el.s : Math.min(el.len, el.s + (time - el.enter) * Math.max(2.5, el.len / a.legTicks))
+      this.place(el, head)
+      // 兵數標在城外，不跟著進去
       const from = regs[el.from], to = regs[el.to], f = el.s / el.len
       el.text.setAttribute('transform', `translate(${(from.x + (to.x - from.x) * f).toFixed(1)},${(from.y + (to.y - from.y) * f - 13).toFixed(1)})`)
     }
+    // 不在了的就收掉：進城進完了，或在路上、城外被打光了
     for (const [id, el] of this.armies) {
       if (seen.has(id)) continue
-      if (!el.ghost) {
-        // 快到的時候不見、那一區又是自己的，就是進城了（增援，或剛打下來），讓後面幾排繼續走進去；
-        // 其他的是在半路或城外被打光了
-        const arriving = state.regions[el.to].owner === el.owner && el.s + 2.5 * el.speed >= el.end
-        if (arriving && el.rows.length > 1) { el.ghost = true; el.text.setAttribute('visibility', 'hidden') }
-      }
-      const head = el.s + (time - el.time) * el.speed
-      // 整隊都進城了，或時間往回跳（重播時拉時間軸），就收掉
-      if (!el.ghost || time < el.time || head - (el.rows.length - 1) * ROW_GAP > el.len) {
-        el.g.remove()
-        this.armies.delete(id)
-      } else this.place(el, head)
+      el.g.remove()
+      this.armies.delete(id)
     }
   }
 
-  /** 照兵力排出幾排小點 */
   private formUp(el: ArmyEls, dots: number): void {
     for (const row of el.rows) row.g.remove()
     el.rows = []
@@ -462,10 +443,9 @@ export class MapView {
     }
   }
 
-  /** 兩軍在路上碰頭的地方閃一下 */
+  /** 兩軍打起來的地方（兩軍中間）閃一下 */
   private spark(c: Clash): void {
-    const a = this.map.regions[c.from], b = this.map.regions[c.to], f = c.t / c.legTicks
-    this.sparkAt(a.x + (b.x - a.x) * f, a.y + (b.y - a.y) * f, 7 + Math.min(8, Math.sqrt(c.units) * 1.5))
+    this.sparkAt(c.x / 10, c.y / 10, 7 + Math.min(8, Math.sqrt(c.units) * 1.5))
   }
 
   private sparkAt(x: number, y: number, size: number): void {

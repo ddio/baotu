@@ -55,15 +55,18 @@ export interface Army {
   legTicks: number
   /** 從驛站出發 */
   fast: boolean
-  /** 已經走到別人的區，停在城外一個換一個地打 */
+  /** 已經停在城外：別人的區就一個換一個地打，自己的區就排隊進城 */
   siege: boolean
 }
 
-/** 兩支敵對的軍隊在路上碰頭的地方：from → to 這段路上走了 t / legTicks 的位置。 */
-export interface Clash { from: number; to: number; t: number; legTicks: number; units: number }
+/** 兩支敵對的軍隊打起來的地方（兩軍中間，地圖座標 ×10）和各自少掉的兵。 */
+export interface Clash { x: number; y: number; units: number }
 
-/** 砲台打中一支軍隊：軍隊當時在 from → to 這段路上走了 t / legTicks 的位置。 */
-export interface Shot { fort: number; owner: PlayerId; from: number; to: number; t: number; legTicks: number }
+/** 砲台打中一支軍隊：軍隊當時的位置（地圖座標 ×10）。 */
+export interface Shot { fort: number; x: number; y: number }
+
+/** 一區換了主人：from 是原本的（0 是中立），to 是打下來的 */
+export interface Take { region: number; from: PlayerId; to: PlayerId }
 
 /** 糧倉換人時多出來的兵 */
 export interface Gain { region: number; units: number }
@@ -84,6 +87,8 @@ export interface GameState {
   gains: Gain[]
   /** 剛跑完的這一拍裡，砲台打中了誰。也只給畫面用。 */
   shots: Shot[]
+  /** 剛跑完的這一拍裡，哪些區換了主人。也只給畫面用。 */
+  takes: Take[]
 }
 
 /** 一筆指令：在第 tick 拍，從 from 區派兵到 to 區。派兵的人就是當下 from 的主人。 */

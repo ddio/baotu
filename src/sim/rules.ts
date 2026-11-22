@@ -1,6 +1,6 @@
 // 數值都集中在這裡。改了會影響戰局的東西，就要把 RULES_VERSION 加一，
 // 舊記錄才不會被用新規則硬播。
-export const RULES_VERSION = 4
+export const RULES_VERSION = 5
 
 /** 每秒幾拍 */
 export const TICKS_PER_SECOND = 10
@@ -14,8 +14,14 @@ export const RULES = {
   neutral: { none: 10, post: 10, granary: 12, fort: 10, city: 30 },
   /** 起點兵力 */
   startUnits: 20,
+  /** 城外：要停下來的軍隊（攻城或進駐）停在離據點多遠的地方，地圖座標的單位 */
+  gate: 28,
   /** 圍城：到了別人的區，每拍雙方各少幾個兵 */
   siegePerTick: 1,
+  /** 進城：到了自己的區，每拍進去幾個兵（比圍城快） */
+  enterPerTick: 3,
+  /** 遭遇：兩支敵對的軍隊在圖上的直線距離在這以內就打起來，不管是不是同一條路 */
+  clashRange: 36,
   /** 派兵後的冷卻（拍） */
   cooldownTicks: 40,
   /** 至少要有這麼多兵才能派 */

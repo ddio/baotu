@@ -12,7 +12,7 @@ export interface Setup {
 
 export function createGame(map: MapData, setup: Setup): GameState {
   const regions: Region[] = map.regions.map((r) => ({
-    owner: 0, units: RULES.neutral[r.trait], acc: 0, readyAt: 0,
+    owner: 0, units: RULES.neutral[r.trait], acc: 0, readyAt: 0, spent: false,
   }))
   setup.starts.forEach((r, i) => {
     regions[r].owner = i + 1
@@ -78,7 +78,9 @@ function besiege(state: GameState, map: MapData, army: Army, at: number): boolea
     r.owner = army.owner
     r.acc = 0
     r.readyAt = state.tick
-    if (map.regions[at].trait === 'granary') {
+    // 糧倉：頭一個打下來的拿走存糧，之後再換人就沒有了
+    if (map.regions[at].trait === 'granary' && !r.spent) {
+      r.spent = true
       r.units += RULES.granaryBonus
       state.gains.push({ region: at, units: RULES.granaryBonus })
     }
@@ -260,7 +262,7 @@ export function hashState(state: GameState): number {
   let h = 2166136261 >>> 0
   const mix = (v: number) => { h = Math.imul(h ^ (v | 0), 16777619) >>> 0 }
   mix(state.tick)
-  for (const r of state.regions) { mix(r.owner); mix(r.units); mix(r.acc); mix(r.readyAt) }
+  for (const r of state.regions) { mix(r.owner); mix(r.units); mix(r.acc); mix(r.readyAt); mix(r.spent ? 1 : 0) }
   for (const a of state.armies) { mix(a.id); mix(a.owner); mix(a.units); mix(a.leg); mix(a.t); mix(a.siege ? 1 : 0); mix(a.fight ? 1 : 0); for (const p of a.path) mix(p) }
   mix(state.winner)
   return h

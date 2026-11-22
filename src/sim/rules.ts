@@ -1,6 +1,6 @@
 // 數值都集中在這裡。改了會影響戰局的東西，就要把 RULES_VERSION 加一，
 // 舊記錄才不會被用新規則硬播。
-export const RULES_VERSION = 7
+export const RULES_VERSION = 8
 
 /** 每秒幾拍 */
 export const TICKS_PER_SECOND = 10
@@ -47,6 +47,6 @@ export const RULES = {
    * 試過 150 以上：沒人佔的澎湖會一直打鹽水港進出的軍隊，從鹽水港起家的勝率掉一半。
    */
   fort: { range: 80, every: 3, far: { penghu: 130 } as Readonly<Record<string, number>> },
-  /** 糧倉：每次換人佔領時加的兵 */
+  /** 糧倉：第一次被打下來時加給打下來那一方的兵。每個糧倉一局只給一次，之後再換人都不加 */
   granaryBonus: 15,
 } as const

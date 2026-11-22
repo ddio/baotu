@@ -330,6 +330,7 @@ export class MapView {
       if (i === marks.picked) cls += ' picked'
       if (i === marks.stop) cls += ' stop'
       if (cooling) cls += ' cooling'
+      if (r.spent) cls += ' spent'
       if (cls !== n.cls) { n.cls = cls; n.g.setAttribute('class', cls) }
 
       const dim = marks.targets && !marks.targets[i] && i !== marks.selected ? 'land dim' : i === marks.picked ? 'land lit' : 'land'
@@ -375,7 +376,7 @@ export class MapView {
   }
 
   /**
-   * 糧倉換人、兵變多了：一圈小點從四周湧進據點，據點鼓一下，外面盪開兩圈，上面飄一個「+15」。
+   * 糧倉第一次被打下來、兵變多了：一圈小點從四周湧進據點，據點鼓一下，外面盪開兩圈，上面飄一個「+15」。
    */
   private gain(region: number, units: number, owner: number): void {
     const r = this.map.regions[region], n = this.nodes[region]

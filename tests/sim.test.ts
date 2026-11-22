@@ -268,30 +268,46 @@ describe('行軍與交戰', () => {
     expect(t.regions[id('基隆')]).toMatchObject({ owner: 0, units: RULES.neutral.fort })
   })
 
-  it('糧倉：每次換人佔領都加兵', () => {
+  it('糧倉：第一次被打下來才加兵，一局只給一次', () => {
     const s = createGame(map, { players: 2, starts: [id('臺中'), id('斗六')] })
-    const take = (from: string, units: number) => {
+    const take = (from: string, units: number, to = '彰化') => {
       s.regions[id(from)].units = units
       s.regions[id(from)].readyAt = 0
-      issue(s, map, g, id(from), id('彰化'))
+      issue(s, map, g, id(from), id(to))
       const gained: number[] = []
-      while (s.armies.length) { step(s, map, g); for (const e of s.gains) if (e.region === id('彰化')) gained.push(e.units) }
+      while (s.armies.length) { step(s, map, g); for (const e of s.gains) if (e.region === id(to)) gained.push(e.units) }
       return gained
     }
+    // 打不下來不算，存糧還在
+    expect(take('臺中', 5)).toEqual([])
+    expect(s.regions[id('彰化')]).toMatchObject({ owner: 0, spent: false })
+    s.regions[id('彰化')].units = RULES.neutral.granary
     expect(take('臺中', 30)).toEqual([RULES.granaryBonus])
-    expect(s.regions[id('彰化')]).toMatchObject({ owner: 1, units: 30 - RULES.neutral.granary + RULES.granaryBonus })
-    // 被搶走、再搶回來，每次都加
+    expect(s.regions[id('彰化')]).toMatchObject({ owner: 1, units: 30 - RULES.neutral.granary + RULES.granaryBonus, spent: true })
+    // 被搶走、再搶回來，都不再加（守軍只會比派去的少，沒有多出 15）
     s.regions[id('彰化')].units = 5
-    expect(take('斗六', 30)).toEqual([RULES.granaryBonus])
-    expect(s.regions[id('彰化')].owner).toBe(2)
+    expect(take('斗六', 30)).toEqual([])
+    expect(s.regions[id('彰化')]).toMatchObject({ owner: 2, spent: true })
+    expect(s.regions[id('彰化')].units).toBeLessThan(30)
     s.regions[id('彰化')].units = 5
-    expect(take('臺中', 30)).toEqual([RULES.granaryBonus])
-    expect(s.regions[id('彰化')].owner).toBe(1)
-    // 增援自己的糧倉、打不下來，都不加
-    s.regions[id('彰化')].units = 30
-    expect(take('臺中', 10)).toEqual([])
-    expect(take('斗六', 10)).toEqual([])
-    expect(s.regions[id('彰化')].owner).toBe(1)
+    expect(take('臺中', 30)).toEqual([])
+    expect(s.regions[id('彰化')]).toMatchObject({ owner: 1, spent: true })
+    // 每個糧倉各算各的：鹽水港的還在
+    expect(s.regions[id('鹽水港')].spent).toBe(false)
+    // 不是糧倉的區不會被標成發過
+    expect(s.regions.filter((r) => r.spent)).toHaveLength(1)
+  })
+
+  it('糧倉：從糧倉起家的，存糧留給第一個打下來的人', () => {
+    const s = createGame(map, { players: 2, starts: [id('彰化'), id('臺中')] })
+    expect(s.regions[id('彰化')].spent).toBe(false)
+    s.regions[id('彰化')].units = 5
+    s.regions[id('臺中')].units = 30
+    issue(s, map, g, id('臺中'), id('彰化'))
+    const gained: number[] = []
+    while (s.armies.length && !s.winner) { step(s, map, g); for (const e of s.gains) gained.push(e.units) }
+    expect(gained).toEqual([RULES.granaryBonus])
+    expect(s.regions[id('彰化')]).toMatchObject({ owner: 2, spent: true })
   })
 
   it('中途的區被搶走，就在那裡開打', () => {

@@ -62,7 +62,8 @@ export function startApp(root: HTMLElement): void {
   const regionText = (i: number, state: ViewState): [string, string] => {
     const r = map.regions[i], st = state.regions[i], t = TRAITS[r.trait]
     const owner = st.owner === 0 ? '中立' : sideName(st.owner)
-    return [`${r.name}廳　${owner}　${st.units} 兵`, `${t ? `【${t.name}】${t.text}。` : ''}今${r.today}。`]
+    const trait = !t ? '' : st.spent ? `【${t.name}】存糧已經被拿走，再打下來不會加兵。` : `【${t.name}】${t.text}。`
+    return [`${r.name}廳　${owner}　${st.units} 兵`, `${trait}今${r.today}。`]
   }
 
   /** 上方的各方兵力條 */

@@ -48,6 +48,8 @@ export interface Region {
   acc: number
   /** 這一拍（含）之後才能再派兵 */
   readyAt: number
+  /** 糧倉的兵發過了（一局只發一次）。不是糧倉的區永遠是 false */
+  spent: boolean
 }
 
 export interface Army {
@@ -79,7 +81,7 @@ export interface Shot { fort: number; x: number; y: number }
 /** 一區換了主人：from 是原本的（0 是中立），to 是打下來的 */
 export interface Take { region: number; from: PlayerId; to: PlayerId }
 
-/** 糧倉換人時多出來的兵 */
+/** 糧倉第一次被打下來時多出來的兵 */
 export interface Gain { region: number; units: number }
 
 export interface GameState {
@@ -94,7 +96,7 @@ export interface GameState {
   winner: PlayerId
   /** 剛跑完的這一拍裡，路上碰頭的地方。只給畫面用，每拍重填，不算進雜湊。 */
   clashes: Clash[]
-  /** 剛跑完的這一拍裡，哪些糧倉換了人、加了多少兵。也只給畫面用。 */
+  /** 剛跑完的這一拍裡，哪些糧倉發了兵、發了多少。也只給畫面用。 */
   gains: Gain[]
   /** 剛跑完的這一拍裡，砲台打中了誰。也只給畫面用。 */
   shots: Shot[]

@@ -8,6 +8,8 @@ export interface ViewRegion {
   units: number
   /** 這一拍（含）之後才能再派兵 */
   readyAt: number
+  /** 糧倉的兵發過了。規則 v7 以前每次換人都發，沒有這一欄 */
+  spent?: boolean
 }
 
 export interface ViewArmy {

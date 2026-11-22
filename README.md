@@ -19,7 +19,16 @@ npm run dev        # 開發伺服器
 npm test           # 規則與重播的測試
 npm run build      # 型別檢查＋產生 dist/
 npm run build:map  # 由鄉鎮界重新產生地圖資料
+npm run balance    # 讓電腦互打幾百局，印出各難度的勝率（調數值用）
 ```
+
+推上 `main` 之後，GitHub Actions 會跑測試、建置，再放上 GitHub Pages。
+
+## 目前的限制
+
+- 只能用滑鼠或觸控玩，還不能只靠鍵盤操作。
+- 記錄只存在當下這個瀏覽器；換裝置要用「匯出／匯入」。
+- 規則或地圖改版後，舊記錄會留在清單裡，但不能重播。
 
 設計上的決定與理由見 [docs/DESIGN.md](docs/DESIGN.md)。
 

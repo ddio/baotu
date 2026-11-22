@@ -60,6 +60,9 @@ export interface Army {
 /** 兩支敵對的軍隊在路上碰頭的地方：from → to 這段路上走了 t / legTicks 的位置。 */
 export interface Clash { from: number; to: number; t: number; legTicks: number; units: number }
 
+/** 砲台打中一支軍隊：軍隊當時在 from → to 這段路上走了 t / legTicks 的位置。 */
+export interface Shot { fort: number; from: number; to: number; t: number; legTicks: number }
+
 /** 糧倉換人時多出來的兵 */
 export interface Gain { region: number; units: number }
 
@@ -77,6 +80,8 @@ export interface GameState {
   clashes: Clash[]
   /** 剛跑完的這一拍裡，哪些糧倉換了人、加了多少兵。也只給畫面用。 */
   gains: Gain[]
+  /** 剛跑完的這一拍裡，砲台打中了誰。也只給畫面用。 */
+  shots: Shot[]
 }
 
 /** 一筆指令：在第 tick 拍，從 from 區派兵到 to 區。派兵的人就是當下 from 的主人。 */

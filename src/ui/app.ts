@@ -1,7 +1,7 @@
 // 各個畫面：開局、對戰、結束、記錄、重播。地圖只有一張，畫面之間換的是上下兩列與蓋在上面的紙片。
 import { DEFAULT_MAP, MAPS } from '../maps'
 import type { Difficulty } from '../sim/ai'
-import { attackStrength, canSend, createGame, sendAmount } from '../sim/game'
+import { canSend, createGame, sendAmount, shellLoss } from '../sim/game'
 import { legTicks, reach, route, stopIndex } from '../sim/graph'
 import { Match } from '../sim/match'
 import { addRecord, type GameRecord, makeRecord, MAX_RECORDS, parseRecord, playable, Replay, type Result } from '../sim/record'
@@ -182,10 +182,12 @@ export function startApp(root: HTMLElement): void {
       const n = sendAmount(state.regions[from].units)
       const secs = Math.max(1, Math.round(p.ticks / TICKS_PER_SECOND))
       const trip = `約 ${secs} 秒到${p.ridge ? '（要翻山）' : ''}`
-      if (target.owner === ME) return [`${a.name} → ${b.name}　增援 ${n} 兵`, `${trip}。`]
-      const power = attackStrength(map, p.at, n)
-      const fort = power !== n ? `，砲台讓你的兵只算 ${power}` : ''
-      const odds = power > target.units ? '拿得下' : '拿不下，只能削弱守軍'
+      // 路上經過別人砲台的射程，會一路被打
+      const lost = shellLoss(state, graph, p.path, p.stop, map.regions[from].trait === 'post', ME, n)
+      const left = n - lost
+      if (target.owner === ME) return [`${a.name} → ${b.name}　增援 ${n} 兵`, `${trip}${lost ? `，路上會被砲台打掉約 ${lost} 兵` : ''}。`]
+      const fort = lost ? `，路上會被砲台打掉約 ${lost} 兵、剩 ${left}` : ''
+      const odds = left > target.units ? '拿得下' : left > 0 ? '拿不下，只能削弱守軍' : '走不到'
       const head = `${a.name} → ${b.name}　派 ${n} 兵`
       if (p.at !== to) return [head, `路上的${map.regions[p.at].name}不是你的，會先在那裡開打：守軍 ${target.units}${fort}，${trip}，${odds}。`]
       return [head, `守軍 ${target.units}${fort}。${trip}，${odds}。`]

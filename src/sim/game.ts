@@ -1,5 +1,5 @@
 // 遊戲規則本體：純函式、固定節拍、只用整數。不碰 DOM、不用 Math.random。
-import { type Graph, legTicks, route } from './graph'
+import { type Graph, inRange, legTicks, route } from './graph'
 import { RULES } from './rules'
 import type { Army, GameState, MapData, PlayerId, Region } from './types'
 
@@ -20,7 +20,7 @@ export function createGame(map: MapData, setup: Setup): GameState {
   })
   const alive = [false]
   for (let p = 1; p <= setup.players; p++) alive.push(true)
-  return { tick: 0, players: setup.players, regions, armies: [], nextArmyId: 1, alive, winner: 0, clashes: [], gains: [] }
+  return { tick: 0, players: setup.players, regions, armies: [], nextArmyId: 1, alive, winner: 0, clashes: [], gains: [], shots: [] }
 }
 
 export const isCity = (map: MapData, r: number) => map.regions[r].trait === 'city'
@@ -31,9 +31,6 @@ export const capOf = (map: MapData, r: number) => {
 export const prodOf = (map: MapData, r: number) => (isCity(map, r) ? RULES.prodPerTick.city : RULES.prodPerTick.normal)
 /** 這次派兵會派出幾個：整區的兵都走 */
 export const sendAmount = (units: number) => units
-/** 進攻 r 區時，n 個兵實際算幾個 */
-export const attackStrength = (map: MapData, r: number, n: number) =>
-  map.regions[r].trait === 'fort' ? Math.floor((n * RULES.fortNum) / RULES.fortDen) : n
 
 export function canSend(state: GameState, from: number): boolean {
   const r = state.regions[from]
@@ -65,10 +62,9 @@ export function issue(state: GameState, map: MapData, g: Graph, from: number, to
 function arrive(state: GameState, map: MapData, army: Army, at: number): void {
   const r = state.regions[at]
   if (r.owner === army.owner) { r.units += army.units; return }
-  const power = attackStrength(map, at, army.units)
-  if (power <= r.units) { r.units -= power; return }
+  if (army.units <= r.units) { r.units -= army.units; return }
   // 佔領
-  r.units = power - r.units
+  r.units = army.units - r.units
   r.owner = army.owner
   r.acc = 0
   r.readyAt = state.tick
@@ -110,6 +106,43 @@ function clash(state: GameState): void {
   }
 }
 
+/**
+ * 砲台開火：每隔幾拍，射程內每一支不是砲台主人的軍隊都少一個兵。
+ * 中立的砲台誰都打。在射程裡待越久（走得慢、路繞著砲台），損失越多。
+ */
+function shell(state: GameState, g: Graph): void {
+  state.shots = []
+  if (state.tick % RULES.fort.every !== 0) return
+  for (const f of g.forts) {
+    const owner = state.regions[f].owner
+    for (const a of state.armies) {
+      if (a.units === 0 || a.owner === owner) continue
+      const from = a.path[a.leg], to = a.path[a.leg + 1]
+      if (!inRange(g, f, from, to, a.t, a.legTicks)) continue
+      a.units -= 1
+      state.shots.push({ fort: f, from, to, t: a.t, legTicks: a.legTicks })
+    }
+  }
+}
+
+/**
+ * 現在派 units 個兵沿 path 走到第 stop 站，路上會被砲台打掉幾個（照現在各砲台的主人算）。
+ * 跟 step 裡的算法一拍一拍對齊，砲台中途沒換人的話就是準的。
+ */
+export function shellLoss(state: GameState, g: Graph, path: number[], stop: number, fast: boolean, owner: PlayerId, units: number): number {
+  const forts = g.forts.filter((f) => state.regions[f].owner !== owner)
+  if (!forts.length) return 0
+  let tick = state.tick, lost = 0
+  for (let i = 0; i < stop; i++) {
+    const len = legTicks(g, path[i], path[i + 1], fast)
+    for (let t = 1; t <= len; t++, tick++) {
+      if (tick % RULES.fort.every !== 0) continue
+      for (const f of forts) if (inRange(g, f, path[i], path[i + 1], t, len)) lost += 1
+    }
+  }
+  return Math.min(lost, units)
+}
+
 /** 推進一拍。 */
 export function step(state: GameState, map: MapData, g: Graph): void {
   if (state.winner) return
@@ -120,10 +153,11 @@ export function step(state: GameState, map: MapData, g: Graph): void {
     r.acc += prodOf(map, i)
     if (r.acc >= 1000) { r.acc -= 1000; r.units += 1 }
   }
-  // 行軍（依編號順序處理，結果才固定）：先全部往前一拍，路上碰頭的先抵銷，剩下的才抵達
+  // 行軍（依編號順序處理，結果才固定）：先全部往前一拍，路上碰頭的先抵銷，再挨砲台的砲，剩下的才抵達
   for (const a of state.armies) a.t += 1
   state.gains = []
   clash(state)
+  shell(state, g)
   const still: Army[] = []
   for (const a of state.armies) {
     if (a.units === 0) continue

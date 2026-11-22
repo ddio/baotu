@@ -4,7 +4,15 @@ import type { GameState, MapData, PlayerId } from './types'
 export interface Link { to: number; ticks: number; kind: 'land' | 'mountain' | 'sea' }
 
 /** 由地圖資料算出的鄰接表，行軍時間已經換算成拍數。 */
-export interface Graph { n: number; links: Link[][] }
+export interface Graph {
+  n: number
+  links: Link[][]
+  /** 有砲台的區 */
+  forts: number[]
+  /** 各區據點的座標 ×10（整數），算砲台射程用 */
+  x: number[]
+  y: number[]
+}
 
 export function buildGraph(map: MapData): Graph {
   const links: Link[][] = map.regions.map(() => [])
@@ -17,7 +25,24 @@ export function buildGraph(map: MapData): Graph {
     links[e.b].push({ to: e.a, ticks, kind: e.kind })
   }
   for (const l of links) l.sort((p, q) => p.to - q.to)
-  return { n: map.regions.length, links }
+  const forts: number[] = []
+  map.regions.forEach((r, i) => { if (r.trait === 'fort') forts.push(i) })
+  return {
+    n: map.regions.length, links, forts,
+    x: map.regions.map((r) => Math.round(r.x * 10)),
+    y: map.regions.map((r) => Math.round(r.y * 10)),
+  }
+}
+
+/**
+ * 在 from → to 這段路上走了 t / legTicks 的軍隊，是不是在 fort 砲台的射程內。
+ * 兩邊同乘 legTicks 再比平方，不出現小數。
+ */
+export function inRange(g: Graph, fort: number, from: number, to: number, t: number, legTicks: number): boolean {
+  const dx = (g.x[from] - g.x[fort]) * legTicks + (g.x[to] - g.x[from]) * t
+  const dy = (g.y[from] - g.y[fort]) * legTicks + (g.y[to] - g.y[from]) * t
+  const reach = RULES.fort.range * 10 * legTicks
+  return dx * dx + dy * dy <= reach * reach
 }
 
 export function legTicks(g: Graph, from: number, to: number, fast: boolean): number {

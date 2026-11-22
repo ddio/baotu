@@ -1,7 +1,7 @@
 // 電腦對手。跟玩家走同一條路：看得到的資訊一樣，也只能下「從哪裡派到哪裡」的指令。
 // 難度主要差在反應速度（多久想一次、一次發動幾波），其次是出手多謹慎、會不會把後方的兵往前線送。
-import { attackStrength, canSend, capOf, prodOf, sendAmount } from './game'
-import { type Graph, reach } from './graph'
+import { canSend, capOf, prodOf, sendAmount, shellLoss } from './game'
+import { type Graph, pathTo, reach } from './graph'
 import type { Rng } from './rng'
 import type { GameState, MapData, PlayerId } from './types'
 
@@ -67,17 +67,21 @@ export function aiThink(
         .sort((a, b) => a.eta - b.eta || a.s - b.s)
       if (!near.length) continue
       const from: number[] = []
-      let sent = 0, eta = 0, ok = false
+      let sent = 0, lost = 0, eta = 0, ok = false
       for (const c of near) {
         from.push(c.s)
-        sent += sendAmount(state.regions[c.s].units)
+        // 路上會被砲台打掉的先扣掉
+        const units = sendAmount(state.regions[c.s].units)
+        const path = pathTo(reaches.get(c.s)!, t)!
+        sent += units
+        lost += shellLoss(state, g, path, path.length - 1, map.regions[c.s].trait === 'post', me, units)
         eta = c.eta
         // 對方在我走到之前還會長兵
         let defence = target.units
         if (target.owner !== 0 && defence < capOf(map, t)) {
           defence = Math.min(capOf(map, t), defence + Math.floor((prodOf(map, t) * eta) / 1000))
         }
-        if (attackStrength(map, t, sent + mine[t]) >= defence + prof.margin) { ok = true; break }
+        if (sent - lost + mine[t] >= defence + prof.margin) { ok = true; break }
       }
       if (!ok) continue
       let value: number = VALUE[map.regions[t].trait]

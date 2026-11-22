@@ -1,6 +1,6 @@
 // 地圖畫面：一張 SVG。只負責把狀態畫出來、回答「這個位置是哪一區」，不管規則。
 import { RULES } from '../sim/rules'
-import type { Clash, GameState, MapData, PlayerId } from '../sim/types'
+import type { Clash, GameState, MapData, PlayerId, Shot } from '../sim/types'
 import { s } from './dom'
 import { BADGE, shapePath, SIDES, SPECIALS, textShift, traitBadge, TRAITS } from './theme'
 
@@ -72,6 +72,8 @@ export class MapView {
   private readonly land: SVGPathElement[] = []
   private readonly landCls: string[] = []
   private readonly nodes: NodeEls[] = []
+  /** 砲台的射程圈，照區的編號放 */
+  private readonly ranges = new Map<number, SVGCircleElement>()
   private readonly armyLayer: SVGGElement
   /** 蓋在據點上面的短暫效果 */
   private readonly fxLayer: SVGGElement
@@ -116,6 +118,16 @@ export class MapView {
       lanes.append(s('line', { x1: a.x, y1: a.y, x2: b.x, y2: b.y, class: 'lane' }))
     }
     this.svg.append(lanes)
+
+    // 砲台的射程：一圈虛線，圈內的敵軍會挨砲
+    const ranges = s('g', {})
+    map.regions.forEach((r, i) => {
+      if (r.trait !== 'fort') return
+      const ring = s('circle', { cx: r.x, cy: r.y, r: RULES.fort.range, class: 'range' })
+      this.ranges.set(i, ring)
+      ranges.append(ring)
+    })
+    this.svg.append(ranges)
 
     // 圖名
     const title = s('g', { class: 'cartouche' })
@@ -232,6 +244,9 @@ export class MapView {
         n.units.setAttribute('y', String(7.5 + textShift(r.owner, R)))
         n.ring.style.stroke = SIDES[r.owner].color
         this.land[i].style.fill = SIDES[r.owner].tint
+        // 射程圈跟著砲台主人的顏色；中立的用墨色
+        const range = this.ranges.get(i)
+        if (range) range.style.stroke = r.owner ? SIDES[r.owner].color : ''
         if (!first) {
           // 易主時據點跳一下
           n.shape.classList.remove('taken')
@@ -266,7 +281,29 @@ export class MapView {
       this.sparkTick = state.tick
       for (const c of state.clashes) this.spark(c)
       for (const e of state.gains) this.gain(e.region, e.units, state.regions[e.region].owner)
+      for (const e of state.shots) this.shot(e)
     }
+  }
+
+  /** 砲台開砲：砲口閃一下，一顆砲彈沿著一道淡線飛到軍隊身上，落點冒一小團煙。 */
+  private shot(e: Shot): void {
+    const regs = this.map.regions
+    const fort = regs[e.fort], a = regs[e.from], b = regs[e.to], f = e.t / e.legTicks
+    const tx = a.x + (b.x - a.x) * f, ty = a.y + (b.y - a.y) * f
+    const far = Math.hypot(tx - fort.x, ty - fort.y)
+    // 砲彈從據點邊上出發；軍隊已經貼到據點上的時候就原地炸
+    const start = Math.min(R + 3, far)
+    const ux = far ? (tx - fort.x) / far : 0, uy = far ? (ty - fort.y) / far : 0
+    const sx = fort.x + ux * start, sy = fort.y + uy * start
+    const shell = s('circle', { r: 5, class: 'shell' })
+    shell.style.setProperty('--dx', `${(tx - sx).toFixed(1)}px`)
+    shell.style.setProperty('--dy', `${(ty - sy).toFixed(1)}px`)
+    const g = s('g', { class: 'shot' },
+      s('line', { x1: sx.toFixed(1), y1: sy.toFixed(1), x2: tx.toFixed(1), y2: ty.toFixed(1), class: 'shell-trail' }),
+      s('g', { transform: `translate(${sx.toFixed(1)},${sy.toFixed(1)})` }, s('circle', { r: 9, class: 'muzzle' }), shell),
+      s('g', { transform: `translate(${tx.toFixed(1)},${ty.toFixed(1)})` }, s('circle', { r: 10, class: 'puff' })))
+    this.fxLayer.append(g)
+    setTimeout(() => g.remove(), 620)
   }
 
   /**

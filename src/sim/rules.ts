@@ -27,9 +27,11 @@ export const RULES = {
   /** 驛站出發：時間乘以 num/den */
   postNum: 2,
   postDen: 3,
-  /** 進攻砲台：兵力乘以 num/den */
-  fortNum: 2,
-  fortDen: 3,
+  /**
+   * 砲台：射程（地圖座標的單位，量的是軍隊在路上的位置到砲台據點的直線距離）內的敵軍，
+   * 每隔 every 拍每支少一個兵。中立的砲台誰都打。
+   */
+  fort: { range: 80, every: 3 },
   /** 糧倉：每次換人佔領時加的兵 */
   granaryBonus: 15,
 } as const

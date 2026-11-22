@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MAPS } from '../src/maps'
-import { attackStrength, canSend, capOf, createGame, hashState, issue, sendAmount, step, totals } from '../src/sim/game'
+import { canSend, capOf, createGame, hashState, issue, sendAmount, shellLoss, step, totals } from '../src/sim/game'
 import { buildGraph, pathTo, reach, route, stopIndex } from '../src/sim/graph'
 import { RULES } from '../src/sim/rules'
 import { pickStarts } from '../src/sim/setup'
@@ -139,9 +139,40 @@ describe('行軍與交戰', () => {
     expect(s.regions[id('新竹')]).toMatchObject({ owner: 0, units: 0 })
   })
 
-  it('砲台：進攻的兵只算三分之二', () => {
-    expect(attackStrength(map, id('基隆'), 30)).toBe(20)
-    expect(attackStrength(map, id('臺北'), 30)).toBe(30)
+  it('砲台：射程內的敵軍一路被打，中立的砲台誰都打', () => {
+    const s = createGame(map, { players: 2, starts: [id('臺北'), id('阿猴')] })
+    s.regions[id('臺北')].units = 40
+    const path = [id('臺北'), id('基隆')]
+    const expected = shellLoss(s, g, path, 1, false, 1, 40)
+    expect(expected).toBeGreaterThan(4)
+    issue(s, map, g, id('臺北'), id('基隆'))
+    let shots = 0
+    for (let i = 0; i < link('臺北', '基隆').ticks; i++) { step(s, map, g); shots += s.shots.length }
+    expect(shots).toBe(expected)
+    // 打下來的兵 = 派出去的 − 路上被打掉的 − 守軍
+    expect(s.regions[id('基隆')]).toMatchObject({ owner: 1, units: 40 - expected - RULES.neutral.fort })
+  })
+
+  it('砲台：不打自己人，路過的敵軍照打；兵被打光就沒了', () => {
+    // 臺北 → 深坑 這段路繞過基隆砲台的射程
+    for (const [from, to, hit] of [['臺北', '深坑', false], ['深坑', '臺北', true]] as const) {
+      const s = createGame(map, { players: 2, starts: [id('臺北'), id('深坑')] })
+      s.regions[id('基隆')].owner = 1
+      s.regions[id(from)].units = 30
+      expect(shellLoss(s, g, [id(from), id(to)], 1, false, s.regions[id(from)].owner, 30) > 0).toBe(hit)
+      issue(s, map, g, id(from), id(to))
+      let shots = 0
+      for (let i = 0; i < link(from, to).ticks - 1; i++) { step(s, map, g); shots += s.shots.length }
+      expect(shots > 0).toBe(hit)
+      expect(s.armies[0].units).toBe(30 - shots)
+    }
+    // 只有 2 個兵的小隊走不到
+    const t = createGame(map, { players: 2, starts: [id('臺北'), id('阿猴')] })
+    t.regions[id('臺北')].units = 2
+    issue(t, map, g, id('臺北'), id('基隆'))
+    run(t, link('臺北', '基隆').ticks)
+    expect(t.armies).toHaveLength(0)
+    expect(t.regions[id('基隆')]).toMatchObject({ owner: 0, units: RULES.neutral.fort })
   })
 
   it('糧倉：每次換人佔領都加兵', () => {

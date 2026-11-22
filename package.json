@@ -10,7 +10,8 @@
     "build": "tsc --noEmit && vite build",
     "preview": "vite preview",
     "test": "vitest run",
-    "build:map": "node tools/build-map.mjs"
+    "build:map": "node tools/build-map.mjs",
+    "balance": "BALANCE=1 vitest run --disableConsoleIntercept"
   },
   "devDependencies": {
     "taiwan-atlas": "^2021.9.20",

@@ -171,6 +171,89 @@ describe('行軍與交戰', () => {
   })
 })
 
+describe('路上相遇', () => {
+  const start = () => {
+    const s = createGame(map, { players: 2, starts: [id('苗栗'), id('臺中')] })
+    return { s, ticks: link('苗栗', '臺中').ticks }
+  }
+
+  it('迎面碰上的敵軍一兵換一兵，兵多的帶著剩下的繼續走', () => {
+    const { s, ticks } = start()
+    s.regions[id('苗栗')].units = 30
+    s.regions[id('臺中')].units = 18
+    issue(s, map, g, id('苗栗'), id('臺中'))
+    issue(s, map, g, id('臺中'), id('苗栗'))
+    // 兩邊一樣快，走到一半碰頭
+    run(s, Math.ceil(ticks / 2) - 1)
+    expect(s.armies.map((a) => a.units)).toEqual([30, 18])
+    run(s, 1)
+    expect(s.armies).toHaveLength(1)
+    expect(s.armies[0]).toMatchObject({ owner: 1, units: 12 })
+    expect(s.clashes).toHaveLength(1)
+    expect(s.clashes[0]).toMatchObject({ from: id('苗栗'), to: id('臺中'), units: 18 })
+    run(s, 1)
+    expect(s.clashes).toHaveLength(0)
+    run(s, ticks)
+    // 臺中的兵都派出去了，只剩路上這段時間長出來的
+    expect(s.regions[id('臺中')].owner).toBe(1)
+    expect(s.regions[id('苗栗')].owner).toBe(1)
+  })
+
+  it('兵力一樣就同歸於盡', () => {
+    const { s, ticks } = start()
+    issue(s, map, g, id('苗栗'), id('臺中'))
+    issue(s, map, g, id('臺中'), id('苗栗'))
+    run(s, ticks)
+    expect(s.armies).toHaveLength(0)
+    expect(s.regions[id('苗栗')].owner).toBe(1)
+    expect(s.regions[id('臺中')].owner).toBe(2)
+  })
+
+  it('自己人擦身而過沒事；不同路上的也碰不到', () => {
+    const { s, ticks } = start()
+    s.regions[id('臺中')].owner = 1
+    issue(s, map, g, id('苗栗'), id('臺中'))
+    issue(s, map, g, id('臺中'), id('苗栗'))
+    run(s, ticks - 1)
+    expect(s.armies.map((a) => a.units)).toEqual([20, 20])
+
+    const t = createGame(map, { players: 2, starts: [id('苗栗'), id('臺中')] })
+    issue(t, map, g, id('苗栗'), id('新竹'))
+    issue(t, map, g, id('臺中'), id('彰化'))
+    run(t, 5)
+    expect(t.armies.map((a) => a.units)).toEqual([20, 20])
+    expect(t.clashes).toHaveLength(0)
+  })
+
+  it('同方向：後面比較快的追上前面的敵軍，也會打起來', () => {
+    const { s } = start()
+    const path = [id('苗栗'), id('臺中')]
+    s.armies.push(
+      { id: 1, owner: 1, units: 9, path, leg: 0, t: 5, legTicks: 20, fast: false },
+      { id: 2, owner: 2, units: 4, path, leg: 0, t: 0, legTicks: 10, fast: true })
+    s.nextArmyId = 3
+    run(s, 4)
+    expect(s.armies).toHaveLength(2)
+    run(s, 1)
+    expect(s.armies).toHaveLength(1)
+    expect(s.armies[0]).toMatchObject({ owner: 1, units: 5 })
+  })
+
+  it('剛出門就撞上快到的敵軍：在門口先抵銷，剩下的才攻城', () => {
+    const { s, ticks } = start()
+    s.regions[id('苗栗')].units = 30
+    issue(s, map, g, id('苗栗'), id('臺中'))
+    run(s, ticks - 1)
+    const home = s.regions[id('臺中')].units
+    issue(s, map, g, id('臺中'), id('苗栗'))
+    run(s, 1)
+    expect(s.armies).toHaveLength(0)
+    expect(s.clashes).toHaveLength(1)
+    // 30 個兵先被出門的守軍抵銷掉一部分，剩下的打進空城
+    expect(s.regions[id('臺中')]).toMatchObject({ owner: 1, units: 30 - home })
+  })
+})
+
 describe('勝負', () => {
   it('對手沒有領地也沒有兵在路上，就分出勝負', () => {
     const s = createGame(map, { players: 2, starts: [id('苗栗'), id('新竹')] })

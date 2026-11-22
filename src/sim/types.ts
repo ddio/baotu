@@ -59,6 +59,9 @@ export interface Army {
   fast: boolean
 }
 
+/** 兩支敵對的軍隊在路上碰頭的地方：from → to 這段路上走了 t / legTicks 的位置。 */
+export interface Clash { from: number; to: number; t: number; legTicks: number; units: number }
+
 export interface GameState {
   tick: number
   players: number
@@ -69,6 +72,8 @@ export interface GameState {
   alive: boolean[]
   /** 0 表示還沒分出勝負 */
   winner: PlayerId
+  /** 剛跑完的這一拍裡，路上碰頭的地方。只給畫面用，每拍重填，不算進雜湊。 */
+  clashes: Clash[]
 }
 
 /** 一筆指令：在第 tick 拍，從 from 區派兵到 to 區。派兵的人就是當下 from 的主人。 */

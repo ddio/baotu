@@ -20,7 +20,7 @@ export function createGame(map: MapData, setup: Setup): GameState {
   })
   const alive = [false]
   for (let p = 1; p <= setup.players; p++) alive.push(true)
-  return { tick: 0, players: setup.players, regions, armies: [], nextArmyId: 1, alive, winner: 0 }
+  return { tick: 0, players: setup.players, regions, armies: [], nextArmyId: 1, alive, winner: 0, clashes: [] }
 }
 
 export const isCity = (map: MapData, r: number) => map.regions[r].trait === 'city'
@@ -76,6 +76,37 @@ function arrive(state: GameState, map: MapData, army: Army, at: number): void {
   }
 }
 
+/**
+ * 路上相遇：同一段路上不同陣營的兩支軍隊碰頭，就一兵換一兵互相抵銷，兵多的那支帶著剩下的繼續走。
+ * 迎面而來的，位置交會就算碰頭；同方向的，後面的追上前面的才算。位置用交叉相乘比，不出現小數。
+ */
+function clash(state: GameState): void {
+  state.clashes = []
+  const all = state.armies
+  for (let i = 0; i < all.length; i++) {
+    const a = all[i]
+    const au = a.path[a.leg], av = a.path[a.leg + 1]
+    for (let j = i + 1; j < all.length && a.units > 0; j++) {
+      const b = all[j]
+      if (b.units === 0 || b.owner === a.owner) continue
+      const bu = b.path[b.leg], bv = b.path[b.leg + 1]
+      let met: boolean
+      if (au === bv && av === bu) {
+        met = a.t * b.legTicks + b.t * a.legTicks >= a.legTicks * b.legTicks
+      } else if (au === bu && av === bv) {
+        const now = a.t * b.legTicks - b.t * a.legTicks
+        const before = (a.t - 1) * b.legTicks - (b.t - 1) * a.legTicks
+        met = now === 0 || before === 0 || (now > 0) !== (before > 0)
+      } else continue
+      if (!met) continue
+      const n = Math.min(a.units, b.units)
+      a.units -= n
+      b.units -= n
+      state.clashes.push({ from: au, to: av, t: a.t, legTicks: a.legTicks, units: n })
+    }
+  }
+}
+
 /** 推進一拍。 */
 export function step(state: GameState, map: MapData, g: Graph): void {
   if (state.winner) return
@@ -86,10 +117,12 @@ export function step(state: GameState, map: MapData, g: Graph): void {
     r.acc += prodOf(map, i)
     if (r.acc >= 1000) { r.acc -= 1000; r.units += 1 }
   }
-  // 行軍（依編號順序處理，結果才固定）
+  // 行軍（依編號順序處理，結果才固定）：先全部往前一拍，路上碰頭的先抵銷，剩下的才抵達
+  for (const a of state.armies) a.t += 1
+  clash(state)
   const still: Army[] = []
   for (const a of state.armies) {
-    a.t += 1
+    if (a.units === 0) continue
     if (a.t < a.legTicks) { still.push(a); continue }
     const at = a.path[a.leg + 1]
     const last = a.leg + 1 === a.path.length - 1

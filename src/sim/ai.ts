@@ -49,11 +49,9 @@ export function aiThink(
 
   let sources: number[] = []
   for (let i = 0; i < n; i++) if (state.regions[i].owner === me && canSend(state, i)) sources.push(i)
-  // 派兵是整區派光：有敵軍正朝這裡來、而且留下來守得住的區，就不動（最簡單的對手不管這個）。
-  // 守不住的照常出兵，等於撤走。
-  if (prof.reinforceAt > 0) {
-    sources = sources.filter((s) => hostile[s] === 0 || attackStrength(map, s, hostile[s]) > state.regions[s].units + mine[s])
-  }
+  // 派兵是整區派光，所以有敵軍正朝這裡來的區一律留下來守，不管守不守得住。
+  // 不然來攻的人到的時候常常撲空，看起來像守軍沒被算進去。
+  sources = sources.filter((s) => hostile[s] === 0)
   if (!sources.length) return orders
   const reaches = new Map(sources.map((s) => [s, reach(g, state, s, me, map.regions[s].trait === 'post')]))
 

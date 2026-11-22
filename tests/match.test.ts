@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MAPS } from '../src/maps'
 import { aiThink } from '../src/sim/ai'
-import { canSend, hashState } from '../src/sim/game'
+import { canSend, createGame, hashState, issue } from '../src/sim/game'
 import { Match, type MatchConfig, SAMPLE_TICKS } from '../src/sim/match'
 import { Rng } from '../src/sim/rng'
 import { pickStarts } from '../src/sim/setup'
@@ -31,6 +31,22 @@ describe('電腦對手', () => {
         }
       }
       m.tick()
+    }
+  })
+
+  it('有敵軍朝這裡來的區留下來守，不出兵', () => {
+    const id = (name: string) => map.regions.findIndex((r) => r.name === name)
+    const m = new Match(map, config(3))
+    for (const difficulty of ['easy', 'normal', 'hard'] as const) {
+      const s = createGame(map, { players: 2, starts: [id('臺中'), id('彰化')] })
+      s.regions[id('彰化')].units = 40
+      // 沒人來打時，彰化的兵會出去打東西
+      let seen = false
+      for (let seed = 1; seed <= 20; seed++) seen ||= aiThink(s, map, m.graph, 2, new Rng(seed), difficulty).some((o) => o.from === id('彰化'))
+      expect(seen).toBe(true)
+      // 臺中的兵出發之後，彰化就不動了
+      expect(issue(s, map, m.graph, id('臺中'), id('彰化'))).toBe(true)
+      for (let seed = 1; seed <= 20; seed++) expect(aiThink(s, map, m.graph, 2, new Rng(seed), difficulty)).toEqual([])
     }
   })
 

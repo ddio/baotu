@@ -40,13 +40,20 @@ export function aiThink(
   const mine = new Array<number>(n).fill(0)
   const hostile = new Array<number>(n).fill(0)
   for (const a of state.armies) {
-    const dest = a.path[a.path.length - 1]
+    // 軍隊會停在路上第一個不是自己的區，不一定走得到終點
+    let dest = a.path[a.path.length - 1]
+    for (let i = a.leg + 1; i < a.path.length; i++) if (state.regions[a.path[i]].owner !== a.owner) { dest = a.path[i]; break }
     if (a.owner === me) mine[dest] += a.units
     else if (state.regions[dest].owner === me) hostile[dest] += a.units
   }
 
   let sources: number[] = []
   for (let i = 0; i < n; i++) if (state.regions[i].owner === me && canSend(state, i)) sources.push(i)
+  // 派兵是整區派光：有敵軍正朝這裡來、而且留下來守得住的區，就不動（最簡單的對手不管這個）。
+  // 守不住的照常出兵，等於撤走。
+  if (prof.reinforceAt > 0) {
+    sources = sources.filter((s) => hostile[s] === 0 || attackStrength(map, s, hostile[s]) > state.regions[s].units + mine[s])
+  }
   if (!sources.length) return orders
   const reaches = new Map(sources.map((s) => [s, reach(g, state, s, me, map.regions[s].trait === 'post')]))
 

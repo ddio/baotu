@@ -522,7 +522,7 @@ export function startApp(root: HTMLElement): void {
   // ================= 玩法 =================
   function showHelp(): void {
     openSlip(h('h2', {}, '玩法'),
-      h('p', {}, '地圖是 1901 年的臺灣二十廳，加上後來的花蓮港廳，共 21 區。選一區起家，把其他勢力都趕出去就贏了。'),
+      h('p', {}, `地圖是 1901 年的臺灣二十廳，加上後來的花蓮港廳，再把紅頭嶼（蘭嶼）分出來，共 ${map.regions.length} 區。選一區起家，把其他勢力都趕出去就贏了。`),
       h('ul', {},
         h('li', {}, `每一區上的數字是兵力。你的區會自己長兵，長到 ${RULES.cap.normal}（大城 ${RULES.cap.city}、砲台 ${RULES.cap.fort}）為止；中立的區不會長。`),
         h('li', {}, '從你的區拖到另一區，那一區的兵就全部派出去。也可以先點自己的區，再點目標。'),
@@ -531,7 +531,8 @@ export function startApp(root: HTMLElement): void {
         h('li', {}, `進城也要排隊：增援自己的區、或剛打下來要進城，每秒進 ${RULES.enterPerTick * TICKS_PER_SECOND} 個，還在城外的兵會被敵軍打到。`),
         h('li', {}, `兩支不同陣營的軍隊在地圖上靠近了就會停下來打，不一定要走同一條路。一兵換一兵，每秒各少 ${RULES.clashPerTick * TICKS_PER_SECOND} 個；打完了，兵多的帶著剩下的繼續走。打的時候不能攻城，也進不了城。`),
         h('li', {}, `派兵後，那一區要等 ${RULES.cooldownTicks / TICKS_PER_SECOND} 秒才能再派。`),
-        h('li', {}, '翻越中央山脈（棕色的山線）要花三倍時間；澎湖只能走虛線標出的三條航線。')),
+        h('li', {}, '翻越中央山脈（棕色的山線）要花三倍時間。'),
+        h('li', {}, '澎湖和紅頭嶼只能走虛線標出的航線。澎湖往臺北那一條長短相間的是險航線，跟翻山一樣要花三倍時間。')),
       h('h3', {}, '有特色的區'),
       h('p', { class: 'lead' }, '這些區的據點右上角有圖記，地圖左下角也有圖例。'),
       h('ul', { class: 'plain' }, ...SPECIALS.map((k) => h('li', {}, traitIcon(k), `${TRAITS[k]!.name}：${TRAITS[k]!.text}。`))),

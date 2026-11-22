@@ -45,7 +45,7 @@ export const SPECIALS: Special[] = ['city', 'fort', 'granary', 'post']
 export const TRAITS: Record<Trait, { name: string; text: string; short: string } | null> = {
   none: null,
   city: { name: '大城', text: '產兵比較快，能屯的兵也多', short: '產兵快' },
-  fort: { name: '砲台', text: '虛線圈是射程，圈內的敵軍每秒被打掉約 3 兵；沒人佔的時候誰都打。能屯的兵也最多', short: '砲轟路過敵軍' },
+  fort: { name: '砲台', text: '虛線圈是射程（澎湖的打得特別遠），圈內的敵軍每秒被打掉約 3 兵；沒人佔的時候誰都打。能屯的兵也最多', short: '砲轟路過敵軍' },
   granary: { name: '糧倉', text: '每次換人佔領，都多得 15 兵', short: '拿下就加兵' },
   post: { name: '驛站', text: '從這裡出發的兵走得快', short: '出兵走得快' },
 }

@@ -93,14 +93,15 @@ describe('記錄與重播', () => {
     expect(new Replay(odd, map).faithful).toBe(true)
   })
 
-  it('沒有留著那一版規則、或地圖版本不同的記錄不能重播', async () => {
-    expect(playable(rec, MAPS)).toBe(true)
-    expect((await openReplay(rec, MAPS))?.faithful).toBe(true)
-    expect(playable({ ...rec, rulesVersion: RULES_VERSION + 1 }, MAPS)).toBe(false)
-    expect(await openReplay({ ...rec, rulesVersion: RULES_VERSION + 1 }, MAPS)).toBeNull()
-    expect(playable({ ...rec, rulesVersion: OLDEST_KEPT - 1 }, MAPS)).toBe(false)
-    expect(playable({ ...rec, mapVersion: map.version + 1 }, MAPS)).toBe(false)
-    expect(playable({ ...rec, map: 'nowhere' }, MAPS)).toBe(false)
+  it('沒有留著那一版規則或那一版地圖的記錄不能重播', async () => {
+    expect(playable(rec)).toBe(true)
+    expect((await openReplay(rec))?.faithful).toBe(true)
+    expect(playable({ ...rec, rulesVersion: RULES_VERSION + 1 })).toBe(false)
+    expect(await openReplay({ ...rec, rulesVersion: RULES_VERSION + 1 })).toBeNull()
+    expect(playable({ ...rec, rulesVersion: OLDEST_KEPT - 1 })).toBe(false)
+    expect(playable({ ...rec, mapVersion: map.version + 1 })).toBe(false)
+    expect(await openReplay({ ...rec, mapVersion: map.version + 1 })).toBeNull()
+    expect(playable({ ...rec, map: 'nowhere' })).toBe(false)
   })
 
   it('最多留 32 筆，新的在前，同一筆不重複', () => {

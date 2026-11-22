@@ -13,6 +13,7 @@
     "build:map": "node tools/build-map.mjs",
     "balance": "BALANCE=1 vitest run --disableConsoleIntercept",
     "freeze": "node tools/freeze.mjs",
+    "freeze:map": "node tools/freeze-map.mjs",
     "fixture": "FIXTURE=1 vitest run tests/engines.test.ts"
   },
   "devDependencies": {

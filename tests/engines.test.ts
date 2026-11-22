@@ -1,9 +1,9 @@
 // 每一版規則各留一筆真實的記錄（tests/fixtures/records/v<N>.json）。
-// 重播出來的結尾雜湊要跟記錄上的一樣，才算那一版的引擎還在、而且沒被動過。
+// 重播出來的結尾雜湊要跟記錄上的一樣，才算那一版的引擎（和當時的地圖）還在、而且沒被動過。
 /// <reference types="node" />
 import { existsSync, readFileSync, writeFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { MAPS } from '../src/maps'
+import { hasMap, loadMap, MAPS } from '../src/maps'
 import { CURRENT, hasEngine, loadEngine, OLDEST_KEPT } from '../src/sim/engines'
 import { Match } from '../src/sim/match'
 import { makeRecord, openReplay, parseRecord, playable, Replay } from '../src/sim/record'
@@ -34,19 +34,34 @@ describe('每一版規則都還能重播', () => {
       const rec = parseRecord(JSON.parse(readFileSync(file(v), 'utf8')))!
       expect(rec.rulesVersion).toBe(v)
       expect(hasEngine(v), `少了規則 v${v} 的引擎：改規則之前要先 npm run freeze`).toBe(true)
-      expect(playable(rec, MAPS)).toBe(true)
+      expect(hasMap(rec.map, rec.mapVersion), `少了地圖 v${rec.mapVersion}：改地圖之前要先 npm run freeze:map`).toBe(true)
+      expect(playable(rec)).toBe(true)
       const engine = (await loadEngine(v))!
       expect(engine.version).toBe(v)
-      const replay = new Replay(rec, map, engine)
+      const old = (await loadMap(rec.map, rec.mapVersion))!
+      expect(old.version).toBe(rec.mapVersion)
+      const replay = new Replay(rec, old, engine)
       expect(
         replay.faithful,
         v === RULES_VERSION
           ? '規則的行為變了：先 npm run freeze 把舊的凍結起來，RULES_VERSION 加一，再 npm run fixture'
-          : `src/sim/v${v}/ 是凍結的，不能改`,
+          : `src/sim/v${v}/ 和 src/maps/old/ 是凍結的，不能改`,
       ).toBe(true)
       expect(replay.takes.length).toBeGreaterThan(10)
       // 畫面走的那條路（先下載引擎再重播）也一樣
-      expect((await openReplay(rec, MAPS))?.engine).toBe(engine)
+      const opened = (await openReplay(rec))!
+      expect(opened.engine).toBe(engine)
+      expect(opened.map).toBe(old)
     })
   }
+
+  it('地圖從第 1 版到現行版都留著', async () => {
+    for (let v = 1; v <= map.version; v++) {
+      expect(hasMap(map.id, v), `少了地圖 v${v}`).toBe(true)
+      expect((await loadMap(map.id, v))?.version).toBe(v)
+    }
+    expect(await loadMap(map.id, map.version)).toBe(map)
+    expect(await loadMap(map.id, map.version + 1)).toBeNull()
+    expect(await loadMap('nowhere', 1)).toBeNull()
+  })
 })

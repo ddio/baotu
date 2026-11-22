@@ -2,6 +2,7 @@
 import { DEFAULT_MAP, MAPS } from '../maps'
 import type { Difficulty } from '../sim/ai'
 import type { ViewState } from '../sim/engine'
+import type { MapData } from '../sim/types'
 import { CURRENT } from '../sim/engines'
 import { canSend, createGame, forecast, sendAmount } from '../sim/game'
 import { legTicks, reach, route, stopIndex } from '../sim/graph'
@@ -26,11 +27,19 @@ const noMarks = (me = 0): Marks => ({ me, selected: -1, targets: null, hover: -1
 
 export function startApp(root: HTMLElement): void {
   const map = MAPS[DEFAULT_MAP]
-  const view = new MapView(map, CURRENT.view)
+  let view = new MapView(map, CURRENT.view)
   const bar = h('header', { class: 'bar' })
   const stage = h('main', { class: 'stage' }, view.svg)
   const panel = h('footer', { class: 'panel' })
   root.append(bar, stage, panel)
+
+  /** 換一張地圖來畫：重播改版前的記錄時換成當時的地圖，離開時換回來 */
+  const useMap = (m: MapData) => {
+    if (view.map === m) return
+    const next = new MapView(m, CURRENT.view)
+    view.svg.replaceWith(next.svg)
+    view = next
+  }
 
   /** 離開目前畫面時要做的收尾（停掉動畫、拿掉事件） */
   let leave: (() => void) | null = null
@@ -337,24 +346,23 @@ export function startApp(root: HTMLElement): void {
   }
 
   // ================= 重播 =================
-  /** 先拿到記錄那一版的規則（舊版要下載），拿到了才換畫面 */
+  /** 先拿到記錄那一版的規則和地圖（舊版要下載），拿到了才換畫面 */
   function showReplay(rec: GameRecord): void {
     const asked = slips
-    openReplay(rec, MAPS).then(
+    openReplay(rec).then(
       (replay) => {
         if (slips !== asked) return
         if (replay) playReplay(replay)
         else showRecords('這筆記錄的規則或地圖已經沒有留著，不能重播。')
       },
-      () => { if (slips === asked) showRecords(`規則 v${rec.rulesVersion} 沒能下載，連上網路後再試一次。`) })
+      () => { if (slips === asked) showRecords('這筆記錄用的舊版規則或地圖沒能下載，連上網路後再試一次。') })
   }
 
   function playReplay(replay: Replay): void {
     closeSlip()
     const rec = replay.rec
-    const old = rec.rulesVersion !== RULES_VERSION
+    const old = rec.rulesVersion !== RULES_VERSION, oldMap = replay.map !== map
     trackReplay(rec.rulesVersion)
-    view.useRules(replay.engine.view)
     const ac = new AbortController()
     let raf = 0, last = performance.now(), acc = 0, playing = true, speed = 2
     // 戰報：你攻下、失守的據點，在地圖角落留幾秒。照時間軸上的位置算，拉時間軸也對得上
@@ -371,7 +379,7 @@ export function startApp(root: HTMLElement): void {
         const key = e.tick * 64 + e.region
         let el = shown.get(key)
         if (!el) {
-          const won = e.to === me, name = map.regions[e.region].name
+          const won = e.to === me, name = replay.map.regions[e.region].name
           el = h('div', { class: won ? 'won' : 'lost', title: won ? `你攻下${name}` : `${name}被${sideName(e.to)}攻下` },
             h('span', { class: 'digits' }, clock(e.tick / TICKS_PER_SECOND)), sideIcon(e.to),
             h('span', {}, won ? `攻下${name}` : `${name}陷落`))
@@ -382,7 +390,9 @@ export function startApp(root: HTMLElement): void {
       }
     }
     stage.append(news)
-    enter(() => { ac.abort(); cancelAnimationFrame(raf); news.remove(); view.useRules(CURRENT.view) })
+    enter(() => { ac.abort(); cancelAnimationFrame(raf); news.remove(); view.useRules(CURRENT.view); useMap(map) })
+    useMap(replay.map)
+    view.useRules(replay.engine.view)
 
     const forces = forcesBar(rec.config.players)
     bar.replaceChildren(forces.el, h('button', { class: 'small', onclick: () => showRecords() }, '離開重播'))
@@ -396,9 +406,10 @@ export function startApp(root: HTMLElement): void {
     const slider = h('input', { type: 'range', min: '0', max: String(total), step: '1', 'aria-label': '時間軸' })
     const time = h('span', { class: 'digits' })
     slider.addEventListener('input', () => { playing = false; replay.seek(Number(slider.value)); acc = 0; sync() })
-    const startName = map.regions[rec.config.starts[0]].name
+    const startName = replay.map.regions[rec.config.starts[0]].name
+    const then = [old ? `規則 v${rec.rulesVersion}` : '', oldMap ? '改版前的地圖' : ''].filter(Boolean).join('、')
     panel.replaceChildren(
-      h('div', { class: 'body' }, `${when(rec)}　從${startName}廳起家，${RESULT[rec.result]}。${old ? `當時是規則 v${rec.rulesVersion}，跟現在的玩法說明不完全一樣。` : ''}${replay.faithful ? '' : '這筆記錄重跑出來的結果和當時不一樣。'}`),
+      h('div', { class: 'body' }, `${when(rec)}　從${startName}廳起家，${RESULT[rec.result]}。${then ? `當時是${then}，跟現在的玩法說明不完全一樣。` : ''}${replay.faithful ? '' : '這筆記錄重跑出來的結果和當時不一樣。'}`),
       h('div', { class: 'row' }, toggle, speedBtn, slider, time))
     const sync = () => {
       toggle.textContent = playing && !replay.done ? '暫停' : replay.done ? '從頭播' : '播放'
@@ -460,7 +471,7 @@ export function startApp(root: HTMLElement): void {
         : `還沒有記錄。打完一局就會存在這個瀏覽器裡，最多留 ${MAX_RECORDS} 筆。`
       exportAll.disabled = !list.length
       ul.replaceChildren(...list.map((rec) => {
-        const ok = playable(rec, MAPS)
+        const ok = playable(rec)
         const start = MAPS[rec.map]?.regions[rec.config.starts[0]]?.name ?? '？'
         const del = h('button', { class: 'small', onclick: () => {
           if (del.dataset.armed) { list = list.filter((r) => r.id !== rec.id); saveRecords(list); draw(); return }

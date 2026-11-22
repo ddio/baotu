@@ -1,6 +1,8 @@
 // 對戰記錄與重播。記錄只存「開局設定＋所有指令」，重播時把指令照拍數餵回規則。
 // 電腦對手的指令也記在裡面，所以重播不用再跑一次電腦，改了電腦的打法舊記錄也還能播。
 // 規則改了就不一樣：每筆記錄帶著規則版本，重播時用那一版的引擎（engines.ts）來跑。
+// 地圖也一樣：記錄帶著地圖版本，重播時用那一版的地圖（maps/index.ts）。
+import { hasMap, loadMap } from '../maps'
 import type { Difficulty } from './ai'
 import type { Engine, Sim, ViewState } from './engine'
 import { CURRENT, hasEngine, loadEngine } from './engines'
@@ -48,17 +50,16 @@ export function makeRecord(match: Match, result: Result, date: Date): GameRecord
   }
 }
 
-/** 這筆記錄能不能重播：那一版的規則還留著，地圖也沒改版。 */
-export function playable(rec: GameRecord, maps: Record<string, MapData>): boolean {
-  const map = maps[rec.map]
-  return rec.format === RECORD_FORMAT && hasEngine(rec.rulesVersion) && !!map && map.version === rec.mapVersion
+/** 這筆記錄能不能重播：那一版的規則和那一版的地圖都還留著。 */
+export function playable(rec: GameRecord): boolean {
+  return rec.format === RECORD_FORMAT && hasEngine(rec.rulesVersion) && hasMap(rec.map, rec.mapVersion)
 }
 
-/** 準備重播：先拿到那一版的引擎（舊版要下載，失敗會丟出例外）。不能重播的回傳 null。 */
-export async function openReplay(rec: GameRecord, maps: Record<string, MapData>): Promise<Replay | null> {
-  if (!playable(rec, maps)) return null
-  const engine = await loadEngine(rec.rulesVersion)
-  return engine && new Replay(rec, maps[rec.map], engine)
+/** 準備重播：先拿到那一版的引擎和地圖（舊版要下載，失敗會丟出例外）。不能重播的回傳 null。 */
+export async function openReplay(rec: GameRecord): Promise<Replay | null> {
+  if (!playable(rec)) return null
+  const [engine, map] = await Promise.all([loadEngine(rec.rulesVersion), loadMap(rec.map, rec.mapVersion)])
+  return engine && map && new Replay(rec, map, engine)
 }
 
 /** 加一筆到最前面；同一筆不重複，超過上限就丟掉最舊的。 */

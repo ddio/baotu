@@ -50,6 +50,8 @@ export interface ViewRules {
   fortFar: Readonly<Record<string, number>>
   /** 派兵後的冷卻（拍） */
   cooldownTicks: number
+  /** 進自己的城，每拍進去幾個兵（整理戰役時要扣掉，進城不算折損） */
+  enterPerTick: number
 }
 
 export interface Setup {
@@ -68,6 +70,8 @@ export interface Sim {
   hash(): number
   /** 各方的總兵力（領地＋路上），索引 0 是中立 */
   totals(): number[]
+  /** 這支軍隊現在在圖上的位置（地圖座標 ×10） */
+  where(army: ViewArmy): [number, number]
 }
 
 export interface Engine {
@@ -78,8 +82,9 @@ export interface Engine {
 
 /** 一版規則要交出來的東西：就是 game.ts、graph.ts、rules.ts 本來就有的那幾個。 */
 export interface EngineParts<S extends ViewState, G extends object> {
-  RULES: { fort: { range: number; far?: Readonly<Record<string, number>> }; cooldownTicks: number }
+  RULES: { fort: { range: number; far?: Readonly<Record<string, number>> }; cooldownTicks: number; enterPerTick: number }
   buildGraph(map: MapData): G
+  posOf(g: G, from: number, to: number, t: number, legTicks: number): [number, number]
   createGame(map: MapData, setup: Setup): S
   issue(state: S, map: MapData, g: G, from: number, to: number): boolean
   step(state: S, map: MapData, g: G): void
@@ -91,7 +96,10 @@ export function makeEngine<S extends ViewState, G extends object>(version: numbe
   const graphs = new WeakMap<MapData, G>()
   return {
     version,
-    view: { fortRange: p.RULES.fort.range, fortFar: p.RULES.fort.far ?? {}, cooldownTicks: p.RULES.cooldownTicks },
+    view: {
+      fortRange: p.RULES.fort.range, fortFar: p.RULES.fort.far ?? {},
+      cooldownTicks: p.RULES.cooldownTicks, enterPerTick: p.RULES.enterPerTick,
+    },
     start(map, setup) {
       const g = graphs.get(map) ?? p.buildGraph(map)
       graphs.set(map, g)
@@ -102,6 +110,7 @@ export function makeEngine<S extends ViewState, G extends object>(version: numbe
         step: () => p.step(state, map, g),
         hash: () => p.hashState(state),
         totals: () => p.totals(state),
+        where: (a) => p.posOf(g, a.path[a.leg], a.path[a.leg + 1], a.t, a.legTicks),
       }
     },
   }

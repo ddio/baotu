@@ -6,11 +6,11 @@
 //   3. npm run fixture，替新版存一筆測試用的記錄
 import { type Engine, makeEngine } from './engine'
 import { createGame, hashState, issue, step, totals } from './game'
-import { buildGraph } from './graph'
+import { buildGraph, posOf } from './graph'
 import { RULES, RULES_VERSION } from './rules'
 
 /** 現行規則 */
-export const CURRENT: Engine = makeEngine(RULES_VERSION, { RULES, buildGraph, createGame, issue, step, hashState, totals })
+export const CURRENT: Engine = makeEngine(RULES_VERSION, { RULES, buildGraph, posOf, createGame, issue, step, hashState, totals })
 
 /** 從這一版起的記錄都要能重播；更早的只看得到結果。 */
 export const OLDEST_KEPT = 6

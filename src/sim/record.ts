@@ -4,6 +4,7 @@
 // 地圖也一樣：記錄帶著地圖版本，重播時用那一版的地圖（maps/index.ts）。
 import { hasMap, loadMap } from '../maps'
 import type { Difficulty } from './ai'
+import { type Battle, BattleLog } from './battles'
 import type { Engine, Sim, ViewState } from './engine'
 import { CURRENT, hasEngine, loadEngine } from './engines'
 import { hashState } from './game'
@@ -104,6 +105,8 @@ export class Replay {
   readonly history: number[][] = []
   /** 整局裡每一次換主人，照時間排（建立時一起算出來）；tick 是發生之後的那一拍 */
   readonly takes: (Take & { tick: number })[] = []
+  /** 整局裡打過的每一場仗，照打完的時間排（建立時一起算出來，算法在 battles.ts） */
+  readonly battles: Battle[]
   /** 跑完整局後的雜湊與記錄上的一不一樣 */
   readonly faithful: boolean
   private next = 0
@@ -113,11 +116,13 @@ export class Replay {
     if (rec.config.starts.some((s) => s >= map.regions.length)) throw new Error('記錄與地圖不合')
     this.sim = this.fresh()
     this.history.push(this.sim.totals())
+    const log = new BattleLog(map, rec.config.players, engine.view.enterPerTick)
     while (this.state.tick < rec.ticks && !this.state.winner) {
-      this.step()
+      this.advance(log)
       for (const e of this.state.takes) this.takes.push({ ...e, tick: this.state.tick })
       if (this.state.tick % SAMPLE_TICKS === 0) this.history.push(this.sim.totals())
     }
+    this.battles = log.finish()
     this.faithful = this.sim.hash() === rec.hash
     this.seek(0)
   }
@@ -142,13 +147,19 @@ export class Replay {
   }
 
   step(): void {
+    this.advance()
+  }
+
+  private advance(log?: BattleLog): void {
     if (this.done) return
     const c = this.rec.commands
     while (this.next < c.length && c[this.next] <= this.state.tick) {
       if (c[this.next] === this.state.tick) this.sim.issue(c[this.next + 1], c[this.next + 2])
       this.next += 3
     }
+    log?.before(this.sim)
     this.sim.step()
+    log?.after(this.sim)
   }
 
   seek(tick: number): void {

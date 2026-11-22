@@ -41,7 +41,7 @@ export const textShift = (owner: number, r: number) => (owner >= 4 ? r * 0.18 : 
 export const TRAITS: Record<Trait, { mark: string; name: string; text: string } | null> = {
   none: null,
   city: { mark: '城', name: '大城', text: '產兵比較快，能屯的兵也多' },
-  fort: { mark: '砲', name: '砲台', text: '來攻的兵只算三分之二' },
+  fort: { mark: '砲', name: '砲台', text: '來攻的兵只算三分之二，能屯的兵最多' },
   granary: { mark: '糧', name: '糧倉', text: '第一次拿下時多得 15 兵' },
   post: { mark: '驛', name: '驛站', text: '從這裡出發的兵走得快' },
 }

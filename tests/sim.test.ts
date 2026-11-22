@@ -40,6 +40,16 @@ describe('生產', () => {
     run(s, 100)
     expect(s.regions[id('苗栗')].units).toBe(capOf(map, id('苗栗')) + 30)
   })
+
+  it('砲台屯得最多，大城其次', () => {
+    const s = createGame(map, { players: 3, starts: [id('基隆'), id('臺南'), id('苗栗')] })
+    run(s, 1000)
+    expect(s.regions[id('基隆')].units).toBe(RULES.cap.fort)
+    expect(s.regions[id('臺南')].units).toBe(RULES.cap.city)
+    expect(s.regions[id('苗栗')].units).toBe(RULES.cap.normal)
+    expect(RULES.cap.fort).toBeGreaterThan(RULES.cap.city)
+    expect(RULES.cap.city).toBeGreaterThan(RULES.cap.normal)
+  })
 })
 
 describe('派兵', () => {
@@ -142,14 +152,14 @@ describe('行軍與交戰', () => {
       issue(s, map, g, id(from), id('彰化'))
       run(s, 60)
     }
-    take('臺中', 40)
-    expect(s.regions[id('彰化')]).toMatchObject({ owner: 1, units: 40 - RULES.neutral.granary + RULES.granaryBonus + 3 })
+    take('臺中', 30)
+    expect(s.regions[id('彰化')]).toMatchObject({ owner: 1, units: 30 - RULES.neutral.granary + RULES.granaryBonus + 3 })
     s.regions[id('彰化')].units = 5
-    take('斗六', 40)
+    take('斗六', 30)
     expect(s.regions[id('彰化')].owner).toBe(2)
     const afterSecond = s.regions[id('彰化')].units
     s.regions[id('彰化')].units = 5
-    take('臺中', 40)
+    take('臺中', 30)
     expect(s.regions[id('彰化')].owner).toBe(1)
     // 第二次拿回來就沒有加兵了
     expect(s.regions[id('彰化')].units).toBeLessThan(afterSecond)

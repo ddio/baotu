@@ -9,7 +9,7 @@ export const RULES = {
   /** 每拍累積的產兵量（1000 = 一個兵） */
   prodPerTick: { normal: 100, city: 160 },
   /** 兵長到這裡就停（援軍進來可以超過） */
-  cap: { normal: 60, city: 120 },
+  cap: { normal: 40, city: 70, fort: 100 },
   /** 中立守軍 */
   neutral: { none: 10, post: 10, granary: 12, fort: 14, city: 30 },
   /** 起點兵力 */

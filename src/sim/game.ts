@@ -24,7 +24,10 @@ export function createGame(map: MapData, setup: Setup): GameState {
 }
 
 export const isCity = (map: MapData, r: number) => map.regions[r].trait === 'city'
-export const capOf = (map: MapData, r: number) => (isCity(map, r) ? RULES.cap.city : RULES.cap.normal)
+export const capOf = (map: MapData, r: number) => {
+  const trait = map.regions[r].trait
+  return trait === 'fort' ? RULES.cap.fort : trait === 'city' ? RULES.cap.city : RULES.cap.normal
+}
 export const prodOf = (map: MapData, r: number) => (isCity(map, r) ? RULES.prodPerTick.city : RULES.prodPerTick.normal)
 /** 這次派兵會派出幾個：整區的兵都走 */
 export const sendAmount = (units: number) => units

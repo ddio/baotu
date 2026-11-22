@@ -2,13 +2,11 @@
 import { RULES } from '../sim/rules'
 import type { Clash, GameState, MapData, PlayerId } from '../sim/types'
 import { s } from './dom'
-import { shapePath, SIDES, textShift, TRAITS } from './theme'
+import { BADGE, shapePath, SIDES, SPECIALS, textShift, traitBadge, TRAITS } from './theme'
 
 /** 據點的半徑（地圖單位） */
 export const R = 21
 const LABEL = 17
-/** 特色方印的邊長 */
-const SEAL = 21
 /** 點在據點附近多遠以內算點到它 */
 const NEAR = 36
 
@@ -121,7 +119,7 @@ export class MapView {
     const title = s('g', { class: 'cartouche' })
     ;[...'臺灣堡圖'].forEach((ch, i) => title.append(s('text', { x: 62, y: 96 + i * 54, class: 'title' }, ch)))
     ;[...'明治三十四年二十廳'].forEach((ch, i) => title.append(s('text', { x: 108, y: 70 + i * 21, class: 'subtitle' }, ch)))
-    this.svg.append(title)
+    this.svg.append(title, this.legend(H))
 
     this.aim = s('polyline', { class: 'aim', visibility: 'hidden' })
     this.aimRest = s('polyline', { class: 'aim-rest', visibility: 'hidden' })
@@ -134,24 +132,40 @@ export class MapView {
       const shape = s('path', { class: 'stamp' })
       const back = s('path', { class: 'stamp-back' })
       const units = s('text', { class: 'units' })
-      g.append(halo, ring, back, shape, units, this.label(r.name, TRAITS[r.trait]?.mark, r.y + R + LABEL + 12 > H - 12))
+      g.append(halo, ring, back, shape, units, this.label(r.name, r.y + R + LABEL + 12 > H - 12))
+      // 有特色的區：圖記掛在據點的右上角
+      if (r.trait !== 'none') {
+        const badge = traitBadge(r.trait)
+        badge.setAttribute('transform', `translate(${R * 0.86},${-R * 0.86})`)
+        g.append(badge)
+      }
       this.nodes.push({ g, shape, back, units, ring, halo, owner: -1, shown: -1, ringOn: false, cls: '' })
       nodeLayer.append(g)
     }
     this.svg.append(this.aimRest, this.aim, this.armyLayer, nodeLayer)
   }
 
-  /** 據點下面的地名；有特色的區前面多一個小方印。貼著圖框下緣的區，地名改放右邊。 */
-  private label(name: string, mark: string | undefined, side: boolean): SVGGElement {
+  /** 據點下面的地名。貼著圖框下緣的區，地名改放右邊。 */
+  private label(name: string, side: boolean): SVGGElement {
     const nameW = name.length * LABEL
-    const markW = mark ? SEAL + 3 : 0
-    const x0 = side ? R + 7 : -(nameW + markW) / 2
     const g = s('g', { class: 'label', transform: `translate(0,${side ? 6 : R + LABEL + 3})` })
-    if (mark) {
-      g.append(s('rect', { x: x0, y: 2.5 - SEAL, width: SEAL, height: SEAL, class: 'seal' }),
-        s('text', { x: x0 + SEAL / 2, y: -1.2, class: 'seal-text' }, mark))
-    }
-    g.append(s('text', { x: x0 + markW + nameW / 2, y: 0, class: 'name' }, name))
+    g.append(s('text', { x: side ? R + 7 + nameW / 2 : 0, y: 0, class: 'name' }, name))
+    return g
+  }
+
+  /** 圖例：左下角的海上，四種圖記各一行 */
+  private legend(H: number): SVGGElement {
+    const ROW = 26, W = 196, x = 34, y = H - 18 - ROW * SPECIALS.length - 8
+    const g = s('g', { class: 'legend', transform: `translate(${x},${y})` },
+      s('rect', { width: W, height: ROW * SPECIALS.length + 8, class: 'legend-box' }))
+    SPECIALS.forEach((k, i) => {
+      const cy = 4 + ROW * i + ROW / 2
+      const badge = traitBadge(k)
+      badge.setAttribute('transform', `translate(${8 + BADGE},${cy})`)
+      g.append(badge,
+        s('text', { x: 16 + BADGE * 2, y: cy + 5.5, class: 'legend-text' },
+          s('tspan', { class: 'legend-name' }, TRAITS[k]!.name), s('tspan', { dx: 7 }, TRAITS[k]!.short)))
+    })
     return g
   }
 

@@ -38,12 +38,51 @@ export function shapePath(owner: number, r: number): string {
 /** 數字在形狀裡要往下挪多少（三角形的重心比較低） */
 export const textShift = (owner: number, r: number) => (owner >= 4 ? r * 0.18 : 0)
 
-export const TRAITS: Record<Trait, { mark: string; name: string; text: string } | null> = {
+export type Special = Exclude<Trait, 'none'>
+export const SPECIALS: Special[] = ['city', 'fort', 'granary', 'post']
+
+/** name 是名稱，text 是完整說明，short 是地圖圖例上的一句話 */
+export const TRAITS: Record<Trait, { name: string; text: string; short: string } | null> = {
   none: null,
-  city: { mark: '城', name: '大城', text: '產兵比較快，能屯的兵也多' },
-  fort: { mark: '砲', name: '砲台', text: '來攻的兵只算三分之二，能屯的兵最多' },
-  granary: { mark: '糧', name: '糧倉', text: '第一次拿下時多得 15 兵' },
-  post: { mark: '驛', name: '驛站', text: '從這裡出發的兵走得快' },
+  city: { name: '大城', text: '產兵比較快，能屯的兵也多', short: '產兵快' },
+  fort: { name: '砲台', text: '來攻的兵只算三分之二，能屯的兵最多', short: '難攻，屯兵多' },
+  granary: { name: '糧倉', text: '第一次拿下時多得 15 兵', short: '初次拿下加兵' },
+  post: { name: '驛站', text: '從這裡出發的兵走得快', short: '出兵走得快' },
+}
+
+/** 圖記的半徑（地圖單位） */
+export const BADGE = 12.5
+
+/**
+ * 特色的圖記：墨色圓底配紙色圖樣，以原點為中心。
+ * 不用字，遠看也認得；不用各方的顏色，才不會被當成是誰的。
+ * 城是城牆與城門，砲是一門砲，糧是稻穗，驛是驛旗。
+ */
+export function traitBadge(trait: Special): SVGGElement {
+  const g = s('g', { class: 'badge' }, s('circle', { r: BADGE, class: 'badge-disc' }))
+  const line = (d: string, width: number) => s('path', { d, class: 'badge-line', 'stroke-width': width })
+  switch (trait) {
+    case 'city':
+      g.append(s('path', { class: 'badge-fill', d: 'M-7.5,6.5V-6.5H-4.5V-3H-1.5V-6.5H1.5V-3H4.5V-6.5H7.5V6.5H2.2V2.6a2.2,2.2 0 0 0 -4.4,0V6.5Z' }))
+      break
+    case 'fort':
+      g.append(line('M-6,1.2L6.8,-5.2', 4.4),
+        s('circle', { cx: -2.4, cy: 3.6, r: 4, class: 'badge-wheel' }),
+        s('circle', { cx: -2.4, cy: 3.6, r: 1.1, class: 'badge-hub' }))
+      break
+    case 'granary':
+      g.append(line('M0,8V-7.5', 1.6), line('M0,5L-4.6,0.6M0,5L4.6,0.6M0,0.8L-4.6,-3.6M0,0.8L4.6,-3.6M0,-3.4L-3.8,-7M0,-3.4L3.8,-7', 2.6))
+      break
+    case 'post':
+      g.append(line('M-4.6,8V-7.6', 2), s('path', { class: 'badge-fill', d: 'M-4.6,-7.8L7.6,-3.4L-4.6,1Z' }))
+      break
+  }
+  return g
+}
+
+/** 放在文字旁邊用的圖記 */
+export function traitIcon(trait: Special): SVGSVGElement {
+  return s('svg', { viewBox: '-14 -14 28 28', class: 'trait-icon', 'aria-hidden': 'true' }, traitBadge(trait))
 }
 
 export const DIFFICULTY: Record<Difficulty, string> = { easy: '易', normal: '中', hard: '難' }

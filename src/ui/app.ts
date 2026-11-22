@@ -12,7 +12,7 @@ import { forceChart } from './chart'
 import { clock, h } from './dom'
 import { type Marks, MapView } from './mapview'
 import { loadPrefs, loadRecords, savePrefs, saveRecords } from './store'
-import { DIFFICULTY, sideIcon, sideName, SIDES, TRAITS } from './theme'
+import { DIFFICULTY, sideIcon, sideName, SIDES, SPECIALS, traitIcon, TRAITS } from './theme'
 
 const ME = 1
 const TICK_MS = 1000 / TICKS_PER_SECOND
@@ -459,7 +459,6 @@ export function startApp(root: HTMLElement): void {
 
   // ================= 玩法 =================
   function showHelp(): void {
-    const li = (mark: string, text: string) => h('li', {}, h('span', { class: 'mark' }, mark), text)
     openSlip(h('h2', {}, '玩法'),
       h('p', {}, '地圖是 1901 年的臺灣二十廳，加上後來的花蓮港廳，共 21 區。選一區起家，把其他勢力都趕出去就贏了。'),
       h('ul', {},
@@ -471,7 +470,8 @@ export function startApp(root: HTMLElement): void {
         h('li', {}, `派兵後，那一區要等 ${RULES.cooldownTicks / TICKS_PER_SECOND} 秒才能再派。`),
         h('li', {}, '翻越中央山脈（棕色的山線）要花三倍時間；澎湖只能走虛線標出的三條航線。')),
       h('h3', {}, '有特色的區'),
-      h('ul', { class: 'plain' }, ...(['city', 'fort', 'granary', 'post'] as const).map((k) => li(TRAITS[k]!.mark, `${TRAITS[k]!.name}：${TRAITS[k]!.text}。`))),
+      h('p', { class: 'lead' }, '這些區的據點右上角有圖記，地圖左下角也有圖例。'),
+      h('ul', { class: 'plain' }, ...SPECIALS.map((k) => h('li', {}, traitIcon(k), `${TRAITS[k]!.name}：${TRAITS[k]!.text}。`))),
       h('h3', {}, '誰是誰'),
       h('p', {}, ...[1, 2, 3, 4].flatMap((p) => [h('span', { class: 'who' }, sideIcon(p), sideName(p)), '　'])),
       h('p', { class: 'lead' }, '分區是用現在的鄉鎮界拼出來的，和當年的界線不完全一樣。'),

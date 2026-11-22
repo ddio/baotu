@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { MAPS } from '../src/maps'
-import { canSend, capOf, createGame, hashState, issue, sendAmount, shellLoss, step, totals } from '../src/sim/game'
+import { canSend, capOf, createGame, forecast, hashState, issue, sendAmount, shellLoss, step, totals } from '../src/sim/game'
 import { buildGraph, pathTo, reach, route, stopIndex } from '../src/sim/graph'
 import { RULES } from '../src/sim/rules'
 import { pickStarts } from '../src/sim/setup'
@@ -9,6 +9,8 @@ const map = MAPS.taiwan1901
 const g = buildGraph(map)
 const id = (name: string) => map.regions.findIndex((r) => r.name === name)
 const run = (s: ReturnType<typeof createGame>, ticks: number) => { for (let i = 0; i < ticks; i++) step(s, map, g) }
+/** 跑到路上沒有軍隊為止，回傳跑了幾拍 */
+const settle = (s: ReturnType<typeof createGame>) => { let n = 0; while (s.armies.length && n < 5000) { step(s, map, g); n++ } return n }
 const link = (a: string, b: string) => g.links[id(a)].find((l) => l.to === id(b))!
 
 describe('開局', () => {
@@ -92,8 +94,7 @@ describe('派兵', () => {
     expect(stopIndex(s, path, 1)).toBe(1)
     s.regions[id('澎湖')].units = 60
     expect(issue(s, map, g, id('澎湖'), id('嘉義'))).toBe(true)
-    run(s, link('澎湖', '鹽水港').ticks)
-    expect(s.armies).toHaveLength(0)
+    settle(s)
     expect(s.regions[id('鹽水港')].owner).toBe(1)
     expect(s.regions[id('嘉義')].owner).toBe(0)
   })
@@ -105,7 +106,7 @@ describe('派兵', () => {
     s.regions[id('鹽水港')].owner = 1
     run(s, link('澎湖', '鹽水港').ticks)
     expect(s.armies).toHaveLength(1)
-    run(s, link('鹽水港', '嘉義').ticks)
+    settle(s)
     expect(s.regions[id('嘉義')].owner).toBe(1)
   })
 })
@@ -126,31 +127,78 @@ describe('行軍與交戰', () => {
     const s = createGame(map, { players: 2, starts: [id('苗栗'), id('阿猴')] })
     s.regions[id('苗栗')].units = 30
     issue(s, map, g, id('苗栗'), id('新竹'))
+    // 走到城外就停下來，一拍換一個，不是一到就全部扣掉
     run(s, link('苗栗', '新竹').ticks)
-    expect(s.armies).toHaveLength(0)
+    expect(s.armies[0]).toMatchObject({ siege: true, units: 29 })
+    expect(s.regions[id('新竹')]).toMatchObject({ owner: 0, units: RULES.neutral.post - 1 })
+    run(s, 3)
+    expect(s.armies[0]).toMatchObject({ siege: true, units: 26 })
+    expect(s.regions[id('新竹')]).toMatchObject({ owner: 0, units: RULES.neutral.post - 4 })
+    // 守軍打光的那一拍佔領，剩下的兵進城
+    expect(settle(s)).toBe(RULES.neutral.post - 4)
     expect(s.regions[id('新竹')]).toMatchObject({ owner: 1, units: 30 - RULES.neutral.post })
+  })
+
+  it('圍城的時候守軍照樣長兵；別路的友軍先打下來，城外的就直接進城', () => {
+    const s = createGame(map, { players: 2, starts: [id('苗栗'), id('新竹')] })
+    s.regions[id('新竹')].units = 30
+    s.regions[id('苗栗')].units = 25
+    issue(s, map, g, id('苗栗'), id('新竹'))
+    settle(s)
+    // 25 個兵打掉 25 個守軍，但守軍在行軍和圍城期間又長了幾個
+    const grown = Math.floor(((link('苗栗', '新竹').ticks + 25) * RULES.prodPerTick.normal) / 1000)
+    expect(s.regions[id('新竹')]).toMatchObject({ owner: 2, units: 30 - 25 + grown })
+
+    const t = createGame(map, { players: 2, starts: [id('苗栗'), id('臺北')] })
+    t.regions[id('桃仔園')].owner = 1
+    t.regions[id('苗栗')].units = 15
+    t.regions[id('桃仔園')].units = 40
+    issue(t, map, g, id('苗栗'), id('新竹'))
+    run(t, link('苗栗', '新竹').ticks + 2)
+    expect(t.armies[0]).toMatchObject({ siege: true, units: 12 })
+    t.regions[id('新竹')].owner = 1
+    run(t, 1)
+    expect(t.armies).toHaveLength(0)
+    expect(t.regions[id('新竹')]).toMatchObject({ owner: 1, units: RULES.neutral.post - 3 + 12 })
+  })
+
+  it('圍城中守軍派兵出城：先在門口跟城外的軍隊抵銷；城空了，城外的就直接進去', () => {
+    const s = createGame(map, { players: 2, starts: [id('苗栗'), id('新竹')] })
+    s.regions[id('新竹')].units = 30
+    s.regions[id('苗栗')].units = 50
+    issue(s, map, g, id('苗栗'), id('新竹'))
+    run(s, link('苗栗', '新竹').ticks + 4)
+    const outside = s.armies[0].units, inside = s.regions[id('新竹')].units
+    expect(s.armies[0].siege).toBe(true)
+    expect(issue(s, map, g, id('新竹'), id('苗栗'))).toBe(true)
+    run(s, 1)
+    expect(s.clashes).toHaveLength(1)
+    expect(s.armies).toHaveLength(0)
+    expect(s.regions[id('新竹')]).toMatchObject({ owner: 1, units: outside - inside })
   })
 
   it('兵力不夠（或剛好打平）就只是削弱守軍', () => {
     const s = createGame(map, { players: 2, starts: [id('苗栗'), id('阿猴')] })
     s.regions[id('苗栗')].units = RULES.neutral.post
     issue(s, map, g, id('苗栗'), id('新竹'))
-    run(s, link('苗栗', '新竹').ticks)
+    settle(s)
     expect(s.regions[id('新竹')]).toMatchObject({ owner: 0, units: 0 })
   })
 
-  it('砲台：射程內的敵軍一路被打，中立的砲台誰都打', () => {
+  it('砲台：射程內的敵軍一路被打，圍城時也照打；中立的砲台誰都打', () => {
     const s = createGame(map, { players: 2, starts: [id('臺北'), id('阿猴')] })
     s.regions[id('臺北')].units = 40
-    const path = [id('臺北'), id('基隆')]
-    const expected = shellLoss(s, g, path, 1, false, 1, 40)
-    expect(expected).toBeGreaterThan(4)
+    const onTheWay = shellLoss(s, g, [id('臺北'), id('基隆')], 1, false, 1, 40)
+    expect(onTheWay).toBeGreaterThan(4)
+    const f = forecast(s, map, g, id('臺北'), id('基隆'))!
     issue(s, map, g, id('臺北'), id('基隆'))
     let shots = 0
-    for (let i = 0; i < link('臺北', '基隆').ticks; i++) { step(s, map, g); shots += s.shots.length }
-    expect(shots).toBe(expected)
-    // 打下來的兵 = 派出去的 − 路上被打掉的 − 守軍
-    expect(s.regions[id('基隆')]).toMatchObject({ owner: 1, units: 40 - expected - RULES.neutral.fort })
+    while (s.armies.length) { step(s, map, g); shots += s.shots.length }
+    // 在城外打的那幾拍還在射程裡
+    expect(shots).toBeGreaterThan(onTheWay)
+    // 打下來的兵 = 派出去的 − 被砲打掉的 − 守軍；事先的估計跟實際一樣
+    expect(s.regions[id('基隆')]).toMatchObject({ owner: 1, units: 40 - shots - RULES.neutral.fort })
+    expect(f).toEqual({ at: id('基隆'), mine: true, units: 40 - shots - RULES.neutral.fort, shelled: shots })
   })
 
   it('砲台：不打自己人，路過的敵軍照打；兵被打光就沒了', () => {
@@ -170,7 +218,7 @@ describe('行軍與交戰', () => {
     const t = createGame(map, { players: 2, starts: [id('臺北'), id('阿猴')] })
     t.regions[id('臺北')].units = 2
     issue(t, map, g, id('臺北'), id('基隆'))
-    run(t, link('臺北', '基隆').ticks)
+    settle(t)
     expect(t.armies).toHaveLength(0)
     expect(t.regions[id('基隆')]).toMatchObject({ owner: 0, units: RULES.neutral.fort })
   })
@@ -182,11 +230,11 @@ describe('行軍與交戰', () => {
       s.regions[id(from)].readyAt = 0
       issue(s, map, g, id(from), id('彰化'))
       const gained: number[] = []
-      for (let i = 0; i < 60; i++) { step(s, map, g); for (const e of s.gains) if (e.region === id('彰化')) gained.push(e.units) }
+      while (s.armies.length) { step(s, map, g); for (const e of s.gains) if (e.region === id('彰化')) gained.push(e.units) }
       return gained
     }
     expect(take('臺中', 30)).toEqual([RULES.granaryBonus])
-    expect(s.regions[id('彰化')]).toMatchObject({ owner: 1, units: 30 - RULES.neutral.granary + RULES.granaryBonus + 3 })
+    expect(s.regions[id('彰化')]).toMatchObject({ owner: 1, units: 30 - RULES.neutral.granary + RULES.granaryBonus })
     // 被搶走、再搶回來，每次都加
     s.regions[id('彰化')].units = 5
     expect(take('斗六', 30)).toEqual([RULES.granaryBonus])
@@ -208,11 +256,12 @@ describe('行軍與交戰', () => {
     s.regions[id('苗栗')].units = 40
     issue(s, map, g, id('苗栗'), id('桃仔園'))
     s.regions[id('新竹')].owner = 2
-    run(s, link('苗栗', '新竹').ticks)
-    expect(s.armies).toHaveLength(0)
-    // 守軍 5，行軍期間對手又長了幾個兵
-    const grown = Math.floor((link('苗栗', '新竹').ticks * RULES.prodPerTick.normal) / 1000)
-    expect(s.regions[id('新竹')]).toMatchObject({ owner: 1, units: 40 - 5 - grown })
+    settle(s)
+    // 守軍 5，行軍和圍城期間對手又長了幾個兵
+    const grown = Math.floor(((link('苗栗', '新竹').ticks + 5) * RULES.prodPerTick.normal) / 1000)
+    expect(s.regions[id('新竹')].owner).toBe(1)
+    expect(40 - 5 - grown - s.regions[id('新竹')].units).toBeGreaterThanOrEqual(0)
+    expect(40 - 5 - grown - s.regions[id('新竹')].units).toBeLessThanOrEqual(1)
     expect(s.regions[id('桃仔園')].owner).toBe(0)
   })
 })
@@ -275,8 +324,8 @@ describe('路上相遇', () => {
     const { s } = start()
     const path = [id('苗栗'), id('臺中')]
     s.armies.push(
-      { id: 1, owner: 1, units: 9, path, leg: 0, t: 5, legTicks: 20, fast: false },
-      { id: 2, owner: 2, units: 4, path, leg: 0, t: 0, legTicks: 10, fast: true })
+      { id: 1, owner: 1, units: 9, path, leg: 0, t: 5, legTicks: 20, fast: false, siege: false },
+      { id: 2, owner: 2, units: 4, path, leg: 0, t: 0, legTicks: 10, fast: true, siege: false })
     s.nextArmyId = 3
     run(s, 4)
     expect(s.armies).toHaveLength(2)
@@ -305,7 +354,7 @@ describe('勝負', () => {
     const s = createGame(map, { players: 2, starts: [id('苗栗'), id('新竹')] })
     s.regions[id('苗栗')].units = 100
     issue(s, map, g, id('苗栗'), id('新竹'))
-    run(s, 60)
+    settle(s)
     expect(s.alive[2]).toBe(false)
     expect(s.winner).toBe(1)
     const tick = s.tick

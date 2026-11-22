@@ -54,17 +54,27 @@ export function issue(state: GameState, map: MapData, g: Graph, from: number, to
   src.readyAt = state.tick + RULES.cooldownTicks
   state.armies.push({
     id: state.nextArmyId++, owner: src.owner, units: n, path, leg: 0, t: 0,
-    legTicks: legTicks(g, path[0], path[1], fast), fast,
+    legTicks: legTicks(g, path[0], path[1], fast), fast, siege: false,
   })
   return true
 }
 
-function arrive(state: GameState, map: MapData, army: Army, at: number): void {
+/**
+ * 圍城：軍隊停在城外，每拍跟守軍一個換一個。回傳 true 表示還沒打完，軍隊繼續留在城外。
+ * 守軍先打光就佔領，剩下的兵進城；同時打光算守住（守軍剩 0）。
+ * 這一區在圍的時候變成自己的（別路的友軍先打下來了），就直接進城。
+ */
+function besiege(state: GameState, map: MapData, army: Army, at: number): boolean {
   const r = state.regions[at]
-  if (r.owner === army.owner) { r.units += army.units; return }
-  if (army.units <= r.units) { r.units -= army.units; return }
+  if (r.owner === army.owner) { r.units += army.units; return false }
+  army.siege = true
+  const n = Math.min(RULES.siegePerTick, army.units, r.units)
+  army.units -= n
+  r.units -= n
+  if (army.units === 0) return false
+  if (r.units > 0) return true
   // 佔領
-  r.units = army.units - r.units
+  r.units = army.units
   r.owner = army.owner
   r.acc = 0
   r.readyAt = state.tick
@@ -73,6 +83,7 @@ function arrive(state: GameState, map: MapData, army: Army, at: number): void {
     r.units += RULES.granaryBonus
     state.gains.push({ region: at, units: RULES.granaryBonus })
   }
+  return false
 }
 
 /**
@@ -120,7 +131,7 @@ function shell(state: GameState, g: Graph): void {
       const from = a.path[a.leg], to = a.path[a.leg + 1]
       if (!inRange(g, f, from, to, a.t, a.legTicks)) continue
       a.units -= 1
-      state.shots.push({ fort: f, from, to, t: a.t, legTicks: a.legTicks })
+      state.shots.push({ fort: f, owner: a.owner, from, to, t: a.t, legTicks: a.legTicks })
     }
   }
 }
@@ -143,6 +154,41 @@ export function shellLoss(state: GameState, g: Graph, path: number[], stop: numb
   return Math.min(lost, units)
 }
 
+export interface Forecast {
+  /** 軍隊會停在哪一區 */
+  at: number
+  /** 打完之後那一區是不是自己的 */
+  mine: boolean
+  /** 打完之後那一區有幾個兵 */
+  units: number
+  /** 一路上（含圍城時）被砲台打掉幾個 */
+  shelled: number
+}
+
+/**
+ * 現在從 from 派兵到 to 會怎麼樣。拿一份只有這支軍隊的副本照規則跑到打完為止，
+ * 所以砲台、圍城時守軍繼續長兵都算在內；沒算的是路上其他的軍隊。派不出去回傳 null。
+ */
+export function forecast(state: GameState, map: MapData, g: Graph, from: number, to: number): Forecast | null {
+  const sim: GameState = {
+    ...state, regions: state.regions.map((r) => ({ ...r })), armies: [], alive: [...state.alive],
+    winner: 0, clashes: [], gains: [], shots: [],
+  }
+  const owner = sim.regions[from].owner
+  sim.regions[from].readyAt = 0
+  if (!issue(sim, map, g, from, to)) return null
+  const army = sim.armies[0]
+  let shelled = 0
+  for (let i = 0; i < 6000 && sim.armies.length; i++) {
+    step(sim, map, g)
+    shelled += sim.shots.length
+    // 副本裡沒有別人的軍隊，可能有人看起來出局了；不讓它提早分出勝負
+    sim.winner = 0
+  }
+  const at = army.path[army.leg + 1]
+  return { at, mine: sim.regions[at].owner === owner, units: sim.regions[at].units, shelled }
+}
+
 /** 推進一拍。 */
 export function step(state: GameState, map: MapData, g: Graph): void {
   if (state.winner) return
@@ -153,8 +199,9 @@ export function step(state: GameState, map: MapData, g: Graph): void {
     r.acc += prodOf(map, i)
     if (r.acc >= 1000) { r.acc -= 1000; r.units += 1 }
   }
-  // 行軍（依編號順序處理，結果才固定）：先全部往前一拍，路上碰頭的先抵銷，再挨砲台的砲，剩下的才抵達
-  for (const a of state.armies) a.t += 1
+  // 行軍（依編號順序處理，結果才固定）：先全部往前一拍（圍城的不動），路上碰頭的先抵銷，
+  // 再挨砲台的砲，剩下的才抵達或接著圍城
+  for (const a of state.armies) if (!a.siege) a.t += 1
   state.gains = []
   clash(state)
   shell(state, g)
@@ -164,8 +211,11 @@ export function step(state: GameState, map: MapData, g: Graph): void {
     if (a.t < a.legTicks) { still.push(a); continue }
     const at = a.path[a.leg + 1]
     const last = a.leg + 1 === a.path.length - 1
-    // 中途的區已經不是自己的，就在這裡開打
-    if (last || state.regions[at].owner !== a.owner) { arrive(state, map, a, at); continue }
+    // 到終點了，或中途的區已經不是自己的：是自己的就進城，不是就在城外開打
+    if (last || a.siege || state.regions[at].owner !== a.owner) {
+      if (besiege(state, map, a, at)) still.push(a)
+      continue
+    }
     a.leg += 1
     a.t = 0
     a.legTicks = legTicks(g, a.path[a.leg], a.path[a.leg + 1], a.fast)
@@ -205,7 +255,7 @@ export function hashState(state: GameState): number {
   const mix = (v: number) => { h = Math.imul(h ^ (v | 0), 16777619) >>> 0 }
   mix(state.tick)
   for (const r of state.regions) { mix(r.owner); mix(r.units); mix(r.acc); mix(r.readyAt) }
-  for (const a of state.armies) { mix(a.id); mix(a.owner); mix(a.units); mix(a.leg); mix(a.t); for (const p of a.path) mix(p) }
+  for (const a of state.armies) { mix(a.id); mix(a.owner); mix(a.units); mix(a.leg); mix(a.t); mix(a.siege ? 1 : 0); for (const p of a.path) mix(p) }
   mix(state.winner)
   return h
 }

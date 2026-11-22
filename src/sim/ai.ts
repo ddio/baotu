@@ -1,7 +1,8 @@
 // 電腦對手。跟玩家走同一條路：看得到的資訊一樣，也只能下「從哪裡派到哪裡」的指令。
 // 難度主要差在反應速度（多久想一次、一次發動幾波），其次是出手多謹慎、會不會把後方的兵往前線送。
 import { canSend, capOf, prodOf, sendAmount, shellLoss } from './game'
-import { type Graph, pathTo, reach } from './graph'
+import { type Graph, inRange, pathTo, reach } from './graph'
+import { RULES } from './rules'
 import type { Rng } from './rng'
 import type { GameState, MapData, PlayerId } from './types'
 
@@ -66,6 +67,8 @@ export function aiThink(
         .filter((c) => c.eta < Infinity)
         .sort((a, b) => a.eta - b.eta || a.s - b.s)
       if (!near.length) continue
+      // 圍城時還在幾座別人砲台的射程裡（打砲台本身，或緊鄰砲台的區）
+      const guns = g.forts.filter((f) => state.regions[f].owner !== me && inRange(g, f, t, t, 0, 1)).length
       const from: number[] = []
       let sent = 0, lost = 0, eta = 0, ok = false
       for (const c of near) {
@@ -76,12 +79,15 @@ export function aiThink(
         sent += units
         lost += shellLoss(state, g, path, path.length - 1, map.regions[c.s].trait === 'post', me, units)
         eta = c.eta
-        // 對方在我走到之前還會長兵
+        // 對方在我走到之前、還有圍城的那段時間都會長兵；圍城大約是守軍有幾個就打幾拍
         let defence = target.units
         if (target.owner !== 0 && defence < capOf(map, t)) {
-          defence = Math.min(capOf(map, t), defence + Math.floor((prodOf(map, t) * eta) / 1000))
+          const siege = Math.floor(defence / RULES.siegePerTick)
+          defence = Math.min(capOf(map, t), defence + Math.floor((prodOf(map, t) * (eta + siege)) / 1000))
         }
-        if (sent - lost + mine[t] >= defence + prof.margin) { ok = true; break }
+        // 圍城時每支軍隊繼續挨砲
+        const shelled = guns * from.length * Math.ceil(defence / (RULES.siegePerTick * RULES.fort.every))
+        if (sent - lost - shelled + mine[t] >= defence + prof.margin) { ok = true; break }
       }
       if (!ok) continue
       let value: number = VALUE[map.regions[t].trait]

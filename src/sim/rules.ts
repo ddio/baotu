@@ -1,6 +1,6 @@
 // 數值都集中在這裡。改了會影響戰局的東西，就要把 RULES_VERSION 加一，
 // 舊記錄才不會被用新規則硬播。
-export const RULES_VERSION = 3
+export const RULES_VERSION = 4
 
 /** 每秒幾拍 */
 export const TICKS_PER_SECOND = 10
@@ -11,9 +11,11 @@ export const RULES = {
   /** 兵長到這裡就停（援軍進來可以超過） */
   cap: { normal: 40, city: 70, fort: 100 },
   /** 中立守軍 */
-  neutral: { none: 10, post: 10, granary: 12, fort: 14, city: 30 },
+  neutral: { none: 10, post: 10, granary: 12, fort: 10, city: 30 },
   /** 起點兵力 */
   startUnits: 20,
+  /** 圍城：到了別人的區，每拍雙方各少幾個兵 */
+  siegePerTick: 1,
   /** 派兵後的冷卻（拍） */
   cooldownTicks: 40,
   /** 至少要有這麼多兵才能派 */

@@ -55,13 +55,15 @@ export interface Army {
   legTicks: number
   /** 從驛站出發 */
   fast: boolean
+  /** 已經走到別人的區，停在城外一個換一個地打 */
+  siege: boolean
 }
 
 /** 兩支敵對的軍隊在路上碰頭的地方：from → to 這段路上走了 t / legTicks 的位置。 */
 export interface Clash { from: number; to: number; t: number; legTicks: number; units: number }
 
 /** 砲台打中一支軍隊：軍隊當時在 from → to 這段路上走了 t / legTicks 的位置。 */
-export interface Shot { fort: number; from: number; to: number; t: number; legTicks: number }
+export interface Shot { fort: number; owner: PlayerId; from: number; to: number; t: number; legTicks: number }
 
 /** 糧倉換人時多出來的兵 */
 export interface Gain { region: number; units: number }

@@ -1,8 +1,35 @@
-// 存在瀏覽器裡的東西：上次的開局設定。
+// 存在瀏覽器裡的東西：對戰記錄（最多 32 筆）與上次的開局設定。
 // localStorage 可能被關掉或滿了，所以讀寫都要能失敗而不影響遊戲。
 import type { Difficulty } from '../sim/ai'
+import { addRecord, type GameRecord, parseRecord } from '../sim/record'
 
+const RECORDS = 'baotu.records.v1'
 const PREFS = 'baotu.prefs.v1'
+
+export function loadRecords(): GameRecord[] {
+  try {
+    const raw: unknown = JSON.parse(localStorage.getItem(RECORDS) ?? '[]')
+    if (!Array.isArray(raw)) return []
+    let list: GameRecord[] = []
+    for (const x of raw) {
+      const rec = parseRecord(x)
+      if (rec) list = addRecord(list, rec)
+    }
+    return list
+  } catch {
+    return []
+  }
+}
+
+/** 存不進去（空間滿了、無痕模式）就回 false */
+export function saveRecords(list: GameRecord[]): boolean {
+  try {
+    localStorage.setItem(RECORDS, JSON.stringify(list))
+    return true
+  } catch {
+    return false
+  }
+}
 
 export interface Prefs { opponents: number; difficulty: Difficulty }
 

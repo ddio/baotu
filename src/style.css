@@ -169,8 +169,29 @@ button.danger { border-color: var(--seal); color: var(--seal); }
 .who { white-space: nowrap; }
 .who svg { width: 16px; height: 16px; vertical-align: -2px; margin-right: 4px; }
 
+/* 記錄清單 */
+.slip .records { margin: 10px 0 0; border-top: 1px solid var(--ink); }
+.records li { padding: 9px 0; border-bottom: 1px solid var(--ink); margin: 0; }
+.records .what { font-weight: 700; }
+.records .when { color: var(--ink-soft); font-size: 0.875rem; }
+.records .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
+.notice { font-size: 0.875rem; color: var(--seal); min-height: 1.4em; }
+
+/* 走勢圖 */
+.chart { margin-top: 10px; position: relative; }
+.chart svg { width: 100%; height: auto; display: block; touch-action: pan-y; }
+.chart .grid { stroke: var(--ink); stroke-width: 0.5; opacity: 0.22; }
+.chart .axis { font-family: var(--digits); font-size: 10px; fill: var(--ink-soft); }
+.chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .cross { stroke: var(--ink); stroke-width: 1; }
+.chart .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 0.875rem; margin-bottom: 4px; }
+.chart .legend svg { width: 12px; height: 12px; display: inline-block; vertical-align: -1px; margin-right: 4px; }
+.chart .tip { font-size: 0.8125rem; color: var(--ink-soft); min-height: 1.5em; margin-top: 2px; }
+.chart .tip b { color: var(--ink); font-family: var(--digits); }
+
 @media (prefers-reduced-motion: reduce) {
   .taken { animation: none; }
   .land, .forces .seg { transition: none; }
 }
 
+.visually-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }

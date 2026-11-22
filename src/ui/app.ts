@@ -1,20 +1,23 @@
-// 各個畫面：開局、對戰、結束。地圖只有一張，畫面之間換的是上下兩列與蓋在上面的紙片。
+// 各個畫面：開局、對戰、結束、記錄、重播。地圖只有一張，畫面之間換的是上下兩列與蓋在上面的紙片。
 import { DEFAULT_MAP, MAPS } from '../maps'
 import type { Difficulty } from '../sim/ai'
 import { attackStrength, canSend, createGame, sendAmount } from '../sim/game'
 import { pathTo, reach } from '../sim/graph'
 import { Match } from '../sim/match'
+import { addRecord, type GameRecord, makeRecord, MAX_RECORDS, parseRecord, playable, Replay, type Result } from '../sim/record'
 import { RULES, TICKS_PER_SECOND } from '../sim/rules'
 import { pickStarts } from '../sim/setup'
 import type { GameState } from '../sim/types'
+import { forceChart } from './chart'
 import { clock, h } from './dom'
 import { type Marks, MapView } from './mapview'
-import { loadPrefs, savePrefs } from './store'
+import { loadPrefs, loadRecords, savePrefs, saveRecords } from './store'
 import { DIFFICULTY, sideIcon, sideName, SIDES, TRAITS } from './theme'
 
 const ME = 1
 const TICK_MS = 1000 / TICKS_PER_SECOND
 const LEVELS: Difficulty[] = ['easy', 'normal', 'hard']
+const RESULT: Record<Result, string> = { win: '勝', lose: '敗', quit: '放棄' }
 
 const newSeed = () => crypto.getRandomValues(new Uint32Array(1))[0] >>> 1
 const noMarks = (me = 0): Marks => ({ me, selected: -1, targets: null, hover: -1, picked: -1 })
@@ -29,7 +32,8 @@ export function startApp(root: HTMLElement): void {
 
   /** 離開目前畫面時要做的收尾（停掉動畫、拿掉事件） */
   let leave: (() => void) | null = null
-  const enter = (cleanup: () => void) => { leave?.(); leave = cleanup }
+  let atStart = false
+  const enter = (cleanup: () => void, start = false) => { leave?.(); leave = cleanup; atStart = start }
 
   // ---- 蓋在上面的紙片 ----
   let veil: HTMLElement | null = null
@@ -75,7 +79,7 @@ export function startApp(root: HTMLElement): void {
   function showStart(picked = -1): void {
     closeSlip()
     const ac = new AbortController()
-    enter(() => ac.abort())
+    enter(() => ac.abort(), true)
     const prefs = loadPrefs()
     const state = createGame(map, { players: 0, starts: [] })
     const head = h('div', { class: 'head' }), body = h('div', { class: 'body' })
@@ -105,7 +109,8 @@ export function startApp(root: HTMLElement): void {
     }, { signal: ac.signal })
 
     bar.replaceChildren(h('h1', {}, '堡圖'), h('span', { class: 'grow' }),
-      h('button', { class: 'small', onclick: showHelp }, '玩法'))
+      h('button', { class: 'small', onclick: showHelp }, '玩法'),
+      h('button', { class: 'small', onclick: () => showRecords() }, '記錄'))
     panel.replaceChildren(head, body, h('div', { class: 'row' },
       choice('對手', [[2, '2 家'], [3, '3 家']], () => prefs.opponents, (v) => { prefs.opponents = v }),
       choice('難度', LEVELS.map((l) => [l, DIFFICULTY[l]] as [Difficulty, string]), () => prefs.difficulty, (v) => { prefs.difficulty = v }),
@@ -236,8 +241,8 @@ export function startApp(root: HTMLElement): void {
         h('p', { class: 'lead' }, `已經打了 ${clock(state.tick / TICKS_PER_SECOND)}。`),
         h('div', { class: 'actions' },
           h('button', { class: 'primary', onclick: resume }, '繼續'),
-          h('button', { onclick: () => { ended = true; startGame(config.starts[0], config.players - 1, config.difficulty) } }, '重來'),
-          h('button', { onclick: () => { ended = true; showStart(config.starts[0]) } }, '回主畫面')))
+          h('button', { onclick: () => { finish('quit'); startGame(config.starts[0], config.players - 1, config.difficulty) } }, '重來'),
+          h('button', { onclick: () => { finish('quit'); showStart(config.starts[0]) } }, '回主畫面')))
     }
     document.addEventListener('visibilitychange', () => { if (document.hidden) pause() }, opt)
     document.addEventListener('keydown', (e) => {
@@ -245,18 +250,30 @@ export function startApp(root: HTMLElement): void {
     }, opt)
 
     // ---- 結束 ----
-    const end = () => {
+    let saved = true
+    const finish = (result: Result): GameRecord | null => {
       ended = true
-      const won = state.winner === ME
+      // 剛開局就放棄的不留
+      if (result === 'quit' && state.tick < 15 * TICKS_PER_SECOND) return null
+      const rec = makeRecord(match, result, new Date())
+      saved = saveRecords(addRecord(loadRecords(), rec))
+      return rec
+    }
+    const end = () => {
+      const result: Result = state.winner === ME ? 'win' : 'lose'
+      const rec = finish(result)!
       select(-1)
       view.clearAim()
       const startName = map.regions[config.starts[0]].name
       openSlip(
-        h('h2', {}, won ? '全島底定' : '領地盡失'),
+        h('h2', {}, result === 'win' ? '全島底定' : '領地盡失'),
         h('p', { class: 'lead' }, `從${startName}廳起家，對 ${config.players - 1} 家，難度${DIFFICULTY[config.difficulty]}，打了 ${clock(state.tick / TICKS_PER_SECOND)}。`),
+        forceChart(match.history, config.players),
+        saved ? '' : h('p', { class: 'notice' }, '這一局沒能存進瀏覽器（空間不足或儲存被停用），關掉分頁就看不到了。'),
         h('div', { class: 'actions' },
           h('button', { class: 'primary', onclick: () => startGame(config.starts[0], config.players - 1, config.difficulty) }, '再來一局'),
-          h('button', { onclick: () => showStart() }, '換個起點')))
+          h('button', { onclick: () => showStart() }, '換個起點'),
+          h('button', { onclick: () => showReplay(rec) }, '看重播')))
     }
 
     // ---- 主迴圈 ----
@@ -288,6 +305,134 @@ export function startApp(root: HTMLElement): void {
     }
     forces.update(state)
     raf = requestAnimationFrame(frame)
+  }
+
+  // ================= 重播 =================
+  function showReplay(rec: GameRecord): void {
+    closeSlip()
+    const replay = new Replay(rec, map)
+    const ac = new AbortController()
+    let raf = 0, last = performance.now(), acc = 0, playing = true, speed = 2
+    enter(() => { ac.abort(); cancelAnimationFrame(raf) })
+
+    const forces = forcesBar(rec.config.players)
+    bar.replaceChildren(forces.el, h('button', { class: 'small', onclick: () => showRecords() }, '離開重播'))
+    const total = rec.ticks
+    const toggle = h('button', { class: 'small', onclick: () => {
+      if (replay.done) replay.seek(0)
+      playing = !playing
+      sync()
+    } })
+    const speedBtn = h('button', { class: 'small digits', 'aria-label': '切換速度', onclick: () => { speed = speed >= 8 ? 1 : speed * 2; speedBtn.textContent = speed + '×' } }, speed + '×')
+    const slider = h('input', { type: 'range', min: '0', max: String(total), step: '1', 'aria-label': '時間軸' })
+    const time = h('span', { class: 'digits' })
+    slider.addEventListener('input', () => { playing = false; replay.seek(Number(slider.value)); acc = 0; sync() })
+    const startName = map.regions[rec.config.starts[0]].name
+    panel.replaceChildren(
+      h('div', { class: 'body' }, `${when(rec)}　從${startName}廳起家，${RESULT[rec.result]}。${replay.faithful ? '' : '這筆記錄用現在的規則跑出來的結果和當時不一樣。'}`),
+      h('div', { class: 'row' }, toggle, speedBtn, slider, time))
+    const sync = () => {
+      toggle.textContent = playing && !replay.done ? '暫停' : replay.done ? '從頭播' : '播放'
+      slider.value = String(replay.state.tick)
+      time.textContent = `${clock(replay.state.tick / TICKS_PER_SECOND)} / ${clock(total / TICKS_PER_SECOND)}`
+      forces.update(replay.state)
+    }
+    const marks = noMarks()
+    const frame = (now: number) => {
+      raf = requestAnimationFrame(frame)
+      const dt = Math.min(250, now - last)
+      last = now
+      if (playing && !replay.done) {
+        acc += dt * speed
+        let stepped = false
+        while (acc >= TICK_MS && !replay.done) { acc -= TICK_MS; replay.step(); stepped = true }
+        if (replay.done) { playing = false; acc = 0 }
+        if (stepped && (replay.state.tick % 5 === 0 || replay.done)) sync()
+      }
+      view.render(replay.state, playing ? Math.min(1, acc / TICK_MS) : 0, marks)
+    }
+    sync()
+    raf = requestAnimationFrame(frame)
+  }
+
+  // ================= 記錄 =================
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const when = (rec: GameRecord) => {
+    const d = new Date(rec.date)
+    return `${d.getFullYear()}/${pad(d.getMonth() + 1)}/${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}`
+  }
+  const download = (name: string, data: unknown) => {
+    const url = URL.createObjectURL(new Blob([JSON.stringify(data)], { type: 'application/json' }))
+    const a = h('a', { href: url, download: name })
+    document.body.append(a)
+    a.click()
+    a.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
+  }
+  const fileName = (rec: GameRecord) => {
+    const d = new Date(rec.date)
+    return `baotu-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(d.getHours())}${pad(d.getMinutes())}.json`
+  }
+
+  function showRecords(message = ''): void {
+    // 從重播回來時，底下換回開局畫面
+    if (!atStart) showStart()
+    let list = loadRecords()
+    const notice = h('p', { class: 'notice', role: 'status' }, message)
+    const count = h('p', { class: 'lead' })
+    const ul = h('ul', { class: 'plain records' })
+    const file = h('input', { type: 'file', accept: '.json,application/json', class: 'visually-hidden' })
+    const exportAll = h('button', { onclick: () => download('baotu-records.json', list) }, '全部匯出')
+
+    const draw = () => {
+      count.textContent = list.length
+        ? `存在這個瀏覽器裡，共 ${list.length} 筆，最多留 ${MAX_RECORDS} 筆，滿了會丟掉最舊的。`
+        : `還沒有記錄。打完一局就會存在這個瀏覽器裡，最多留 ${MAX_RECORDS} 筆。`
+      exportAll.disabled = !list.length
+      ul.replaceChildren(...list.map((rec) => {
+        const ok = playable(rec, MAPS)
+        const start = MAPS[rec.map]?.regions[rec.config.starts[0]]?.name ?? '？'
+        const del = h('button', { class: 'small', onclick: () => {
+          if (del.dataset.armed) { list = list.filter((r) => r.id !== rec.id); saveRecords(list); draw(); return }
+          del.dataset.armed = '1'
+          del.textContent = '確定刪除'
+          del.classList.add('danger')
+        } }, '刪除')
+        return h('li', {},
+          h('div', { class: 'what' }, `${RESULT[rec.result]}　${start}廳起家，對 ${rec.config.players - 1} 家，難度${DIFFICULTY[rec.config.difficulty]}`),
+          h('div', { class: 'when digits' }, `${when(rec)}　打了 ${clock(rec.ticks / TICKS_PER_SECOND)}${ok ? '' : '　規則或地圖已改版，不能重播'}`),
+          h('div', { class: 'acts' },
+            h('button', { class: 'small', disabled: !ok, onclick: () => showReplay(rec) }, '重播'),
+            h('button', { class: 'small', onclick: () => download(fileName(rec), rec) }, '匯出'), del))
+      }))
+    }
+
+    file.addEventListener('change', async () => {
+      const f = file.files?.[0]
+      file.value = ''
+      if (!f) return
+      if (f.size > 8_000_000) { notice.textContent = '檔案太大，不像是堡圖的記錄。'; return }
+      let added = 0
+      try {
+        const raw: unknown = JSON.parse(await f.text())
+        for (const x of Array.isArray(raw) ? raw : [raw]) {
+          const rec = parseRecord(x)
+          if (!rec) continue
+          list = addRecord(list, rec)
+          added += 1
+        }
+      } catch { /* 不是 JSON */ }
+      if (!added) { notice.textContent = '這個檔案裡沒有堡圖的記錄。'; return }
+      notice.textContent = saveRecords(list) ? `讀進 ${added} 筆。` : '讀進來了，但瀏覽器存不下，關掉分頁就會不見。'
+      draw()
+    })
+
+    draw()
+    openSlip(h('h2', {}, '記錄'), count,
+      h('div', { class: 'actions' },
+        h('label', { class: 'button' }, file, '匯入'), exportAll,
+        h('button', { class: 'primary', onclick: closeSlip }, '關閉')),
+      notice, ul)
   }
 
   // ================= 玩法 =================

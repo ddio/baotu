@@ -1,6 +1,6 @@
 // 數值都集中在這裡。改了會影響戰局的東西，就要把 RULES_VERSION 加一，
 // 舊記錄才不會被用新規則硬播。
-export const RULES_VERSION = 5
+export const RULES_VERSION = 6
 
 /** 每秒幾拍 */
 export const TICKS_PER_SECOND = 10
@@ -22,6 +22,8 @@ export const RULES = {
   enterPerTick: 3,
   /** 遭遇：兩支敵對的軍隊在圖上的直線距離在這以內就打起來，不管是不是同一條路 */
   clashRange: 36,
+  /** 遭遇打起來之後，每一對每拍雙方各少幾個兵（比圍城快，比進城慢）；打的時候兩邊都停在原地 */
+  clashPerTick: 2,
   /** 派兵後的冷卻（拍） */
   cooldownTicks: 40,
   /** 至少要有這麼多兵才能派 */

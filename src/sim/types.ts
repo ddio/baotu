@@ -57,9 +57,11 @@ export interface Army {
   fast: boolean
   /** 已經停在城外：別人的區就一個換一個地打，自己的區就排隊進城 */
   siege: boolean
+  /** 這一拍打完，附近還有活著的敵軍：被纏住了，下一拍不前進，也不攻城、不進城 */
+  fight: boolean
 }
 
-/** 兩支敵對的軍隊打起來的地方（兩軍中間，地圖座標 ×10）和各自少掉的兵。 */
+/** 兩支敵對的軍隊打起來的地方（兩軍中間，地圖座標 ×10）和這一拍各自少掉的兵。 */
 export interface Clash { x: number; y: number; units: number }
 
 /** 砲台打中一支軍隊：軍隊當時的位置（地圖座標 ×10）。 */

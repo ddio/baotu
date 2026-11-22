@@ -77,6 +77,7 @@ export class MapView {
   private readonly fxLayer: SVGGElement
   private readonly armies = new Map<number, ArmyEls>()
   private sparkTick = -1
+  private clashTick = -1
   private readonly aim: SVGPolylineElement
   private readonly aimRest: SVGPolylineElement
 
@@ -277,11 +278,15 @@ export class MapView {
     this.renderArmies(state, state.tick + alpha, alpha)
     if (state.tick !== this.sparkTick) {
       this.sparkTick = state.tick
-      for (const c of state.clashes) this.spark(c)
+      // 兩軍交戰是一拍一拍打的，刀光隔一拍閃一次就夠（往回拉時間軸時重新算）
+      if (state.clashes.length && (state.tick < this.clashTick || state.tick - this.clashTick >= 2)) {
+        this.clashTick = state.tick
+        for (const c of state.clashes) this.spark(c)
+      }
       for (const e of state.gains) this.gain(e.region, e.units, state.regions[e.region].owner)
       for (const e of state.shots) this.shot(e)
       // 圍城：城門口每隔幾拍閃一下
-      if (state.tick % 3 === 0) for (const a of state.armies) if (a.siege && state.regions[a.path[a.leg + 1]].owner !== a.owner) {
+      if (state.tick % 3 === 0) for (const a of state.armies) if (a.siege && !a.fight && state.regions[a.path[a.leg + 1]].owner !== a.owner) {
         const from = regs[a.path[a.leg]], to = regs[a.path[a.leg + 1]]
         const len = Math.hypot(to.x - from.x, to.y - from.y), f = (len - R - 1) / len
         this.sparkAt(from.x + (to.x - from.x) * f, from.y + (to.y - from.y) * f, 8)
@@ -375,10 +380,10 @@ export class MapView {
       el.prev = a.leg > 0 ? a.path[a.leg - 1] : -1
       el.len = dist(el.from, el.to)
       el.prevLen = el.prev >= 0 ? dist(el.prev, el.from) : 1
-      el.s = Math.min(1, (a.t + (a.siege ? 0 : alpha)) / a.legTicks) * el.len
+      el.s = Math.min(1, (a.t + (a.siege || a.fight ? 0 : alpha)) / a.legTicks) * el.len
       // 進城：規則裡這支停在城外、每拍進去幾個；畫面上隊伍照原來的步伐接著走進據點（被據點蓋住），
       // 排數跟著還沒進去的兵變少
-      if (!(a.siege && state.regions[el.to].owner === a.owner)) el.enter = -1
+      if (!(a.siege && !a.fight && state.regions[el.to].owner === a.owner)) el.enter = -1
       else if (el.enter < 0 || time < el.enter) el.enter = time
       const head = el.enter < 0 ? el.s : Math.min(el.len, el.s + (time - el.enter) * Math.max(2.5, el.len / a.legTicks))
       this.place(el, head)
@@ -445,7 +450,7 @@ export class MapView {
 
   /** 兩軍打起來的地方（兩軍中間）閃一下 */
   private spark(c: Clash): void {
-    this.sparkAt(c.x / 10, c.y / 10, 7 + Math.min(8, Math.sqrt(c.units) * 1.5))
+    this.sparkAt(c.x / 10, c.y / 10, 8 + c.units)
   }
 
   private sparkAt(x: number, y: number, size: number): void {

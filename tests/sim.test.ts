@@ -195,7 +195,7 @@ describe('行軍與交戰', () => {
     expect(t.regions[id('新竹')]).toMatchObject({ owner: 1, units: RULES.neutral.post - 3 + 12 })
   })
 
-  it('圍城中守軍派兵出城：先在門口跟城外的軍隊抵銷；城空了，城外的就直接進去', () => {
+  it('圍城中守軍派兵出城：在門口跟城外的軍隊打，打的時候城外那支攻不了城；打完城空了才進去', () => {
     const s = createGame(map, { players: 2, starts: [id('苗栗'), id('新竹')] })
     // 對手另外還有一區，才不會兵一打光就分出勝負
     s.regions[id('臺南')].owner = 2
@@ -209,10 +209,16 @@ describe('行軍與交戰', () => {
     expect(issue(s, map, g, id('新竹'), id('桃仔園'))).toBe(true)
     run(s, 1)
     expect(s.clashes).toHaveLength(1)
-    expect(s.armies).toHaveLength(1)
-    expect(s.regions[id('新竹')].owner).toBe(1)
+    expect(s.armies.map((a) => [a.units, a.fight])).toEqual([[outside - RULES.clashPerTick, true], [inside - RULES.clashPerTick, true]])
+    // 城已經空了，但城外那支被纏住，這時候拿不下來
+    expect(s.regions[id('新竹')]).toMatchObject({ owner: 2, units: 0 })
+    run(s, 3)
+    expect(s.regions[id('新竹')].owner).toBe(2)
     settle(s)
-    expect(s.regions[id('新竹')]).toMatchObject({ owner: 1, units: outside - inside })
+    // 出城的全部換掉了；打的這段時間城裡又長了一兩個兵，也要打掉
+    expect(s.regions[id('新竹')].owner).toBe(1)
+    expect(s.regions[id('新竹')].units).toBeLessThanOrEqual(outside - inside)
+    expect(s.regions[id('新竹')].units).toBeGreaterThanOrEqual(outside - inside - 4)
   })
 
   it('兵力不夠（或剛好打平）就只是削弱守軍', () => {
@@ -309,7 +315,7 @@ describe('路上相遇', () => {
     return { s, ticks: link('苗栗', '臺中').ticks }
   }
 
-  it('迎面來的敵軍靠得夠近就打起來，一兵換一兵，兵多的帶著剩下的繼續走', () => {
+  it('迎面來的敵軍靠得夠近就打起來：兩邊停下來，每拍各少幾個，不是整隊一次抵銷', () => {
     const { s, ticks } = start()
     s.regions[id('苗栗')].units = 30
     s.regions[id('臺中')].units = 18
@@ -324,15 +330,24 @@ describe('路上相遇', () => {
     // 兩邊一樣快；不用等到走到一半、位置交會才打
     expect(n).toBeLessThan(Math.ceil(ticks / 2))
     expect(n).toBeGreaterThan(ticks / 4)
-    expect(s.armies).toHaveLength(1)
-    expect(s.armies[0]).toMatchObject({ owner: 1, units: 12 })
-    expect(s.clashes).toHaveLength(1)
-    expect(s.clashes[0].units).toBe(18)
+    const rate = RULES.clashPerTick
+    expect(s.armies.map((a) => [a.units, a.fight])).toEqual([[30 - rate, true], [18 - rate, true]])
+    expect(s.clashes).toEqual([{ x: expect.any(Number), y: expect.any(Number), units: rate }])
     // 打起來的地方記在兩軍中間，大約是這段路的中點
     const mid = posOf(g, id('苗栗'), id('臺中'), 1, 2)
     expect(Math.hypot(s.clashes[0].x - mid[0], s.clashes[0].y - mid[1])).toBeLessThan(60)
+    // 打的時候都停在原地
+    const where = s.armies.map((a) => a.t)
+    run(s, 3)
+    expect(s.armies.map((a) => a.t)).toEqual(where)
+    expect(s.armies.map((a) => a.units)).toEqual([30 - 4 * rate, 18 - 4 * rate])
+    // 18 個兵換完要 18 / rate 拍；兵少的打光，兵多的那一拍就不算被纏住，下一拍繼續走
+    run(s, 18 / rate - 4)
+    expect(s.armies).toHaveLength(1)
+    expect(s.armies[0]).toMatchObject({ owner: 1, units: 12, fight: false, t: where[0] })
     run(s, 1)
     expect(s.clashes).toHaveLength(0)
+    expect(s.armies[0].t).toBe(where[0] + 1)
     settle(s)
     // 臺中的兵都派出去了，只剩路上這段時間長出來的
     expect(s.regions[id('臺中')].owner).toBe(1)
@@ -369,24 +384,25 @@ describe('路上相遇', () => {
     const { s } = start()
     const path = [id('苗栗'), id('臺中')]
     s.armies.push(
-      { id: 1, owner: 1, units: 9, path, leg: 0, t: 36, legTicks: 60, fast: false, siege: false },
-      { id: 2, owner: 2, units: 4, path, leg: 0, t: 0, legTicks: 10, fast: true, siege: false })
+      { id: 1, owner: 1, units: 9, path, leg: 0, t: 36, legTicks: 60, fast: false, siege: false, fight: false },
+      { id: 2, owner: 2, units: 4, path, leg: 0, t: 0, legTicks: 10, fast: true, siege: false, fight: false })
     s.nextArmyId = 3
     run(s, 1)
     expect(s.armies).toHaveLength(2)
     while (!s.clashes.length) step(s, map, g)
-    expect(s.armies).toHaveLength(1)
+    // 打起來的時候後面那支還沒追上；前面那支也被纏住，停下來打
+    expect(s.armies.map((a) => a.fight)).toEqual([true, true])
+    expect(s.armies[1].t * 6).toBeLessThan(s.armies[0].t)
+    while (s.armies.length > 1) step(s, map, g)
     expect(s.armies[0]).toMatchObject({ owner: 1, units: 5 })
-    // 打起來的時候後面那支還沒追上
-    expect(s.clashes[0].units).toBe(4)
   })
 
   it('不同路上的敵軍，在圖上靠得夠近也打', () => {
     // 一支剛從苗栗往南出發（走得很慢），另一支從北邊的新竹往苗栗來：不同的兩段路，但都在苗栗旁邊
     const { s } = start()
     s.armies.push(
-      { id: 1, owner: 1, units: 9, path: [id('苗栗'), id('臺中')], leg: 0, t: 0, legTicks: 400, fast: false, siege: false },
-      { id: 2, owner: 2, units: 4, path: [id('新竹'), id('苗栗')], leg: 0, t: 10, legTicks: 40, fast: false, siege: false })
+      { id: 1, owner: 1, units: 9, path: [id('苗栗'), id('臺中')], leg: 0, t: 0, legTicks: 400, fast: false, siege: false, fight: false },
+      { id: 2, owner: 2, units: 4, path: [id('新竹'), id('苗栗')], leg: 0, t: 10, legTicks: 40, fast: false, siege: false, fight: false })
     s.nextArmyId = 3
     const far = () => {
       const [p, q] = s.armies.map((x) => posOf(g, x.path[0], x.path[1], x.t, x.legTicks))
@@ -396,12 +412,35 @@ describe('路上相遇', () => {
     let last = far()
     while (!s.clashes.length) { last = far(); step(s, map, g) }
     expect(last).toBeGreaterThan(RULES.clashRange)
-    expect(s.clashes[0].units).toBe(4)
-    expect(s.armies).toHaveLength(1)
+    expect(s.clashes[0].units).toBe(RULES.clashPerTick)
+    while (s.armies.length > 1) step(s, map, g)
     expect(s.armies[0]).toMatchObject({ owner: 1, units: 5 })
   })
 
-  it('剛出門就撞上快到城外的敵軍：先抵銷，剩下的才攻城', () => {
+  it('在城外排隊進城的援軍被敵軍纏住：先打完才繼續進城', () => {
+    const { s } = start()
+    const full = capOf(map, id('新竹'))
+    s.regions[id('新竹')].owner = 1
+    s.regions[id('新竹')].units = full
+    issue(s, map, g, id('苗栗'), id('新竹'))
+    run(s, gate('苗栗', '新竹') + 1)
+    const queue = s.armies[0].units, inside = s.regions[id('新竹')].units
+    expect(inside).toBe(full + 2 * RULES.enterPerTick)
+    // 敵軍出現在同一個城門口
+    const me = s.armies[0]
+    s.armies.push({ id: 9, owner: 2, units: 3, path: [...me.path], leg: 0, t: me.t, legTicks: me.legTicks, fast: me.fast, siege: false, fight: false })
+    run(s, 1)
+    expect(s.armies.map((x) => [x.units, x.fight])).toEqual([[queue - 2, true], [1, true]])
+    expect(s.regions[id('新竹')].units).toBe(inside)
+    // 下一拍敵軍打光，這一拍就接著進城
+    run(s, 1)
+    expect(s.armies).toHaveLength(1)
+    expect(s.regions[id('新竹')].units).toBe(inside + RULES.enterPerTick)
+    settle(s)
+    expect(s.regions[id('新竹')].units).toBe(full + 20 - 3)
+  })
+
+  it('剛出門就撞上快到城外的敵軍：先打完，剩下的才攻城', () => {
     const { s } = start()
     s.regions[id('臺南')].owner = 2
     s.regions[id('苗栗')].units = 30
@@ -411,10 +450,14 @@ describe('路上相遇', () => {
     issue(s, map, g, id('臺中'), id('苗栗'))
     run(s, 1)
     expect(s.clashes).toHaveLength(1)
-    expect(s.armies).toHaveLength(1)
-    // 30 個兵先被出門的守軍抵銷掉一部分，剩下的打進空城
+    expect(s.armies).toHaveLength(2)
+    // 城是空的，但還在跟出門的守軍打，這時候進不去
+    expect(s.regions[id('臺中')].owner).toBe(2)
+    // 30 個兵先被出門的守軍換掉一部分，剩下的打進（這段時間又長了一點兵的）城
     settle(s)
-    expect(s.regions[id('臺中')]).toMatchObject({ owner: 1, units: 30 - home })
+    expect(s.regions[id('臺中')].owner).toBe(1)
+    expect(s.regions[id('臺中')].units).toBeLessThanOrEqual(30 - home)
+    expect(s.regions[id('臺中')].units).toBeGreaterThanOrEqual(30 - home - 4)
   })
 })
 

@@ -54,7 +54,7 @@ export function issue(state: GameState, map: MapData, g: Graph, from: number, to
   src.readyAt = state.tick + RULES.cooldownTicks
   state.armies.push({
     id: state.nextArmyId++, owner: src.owner, units: n, path, leg: 0, t: 0,
-    legTicks: legTicks(g, path[0], path[1], fast), fast, siege: false,
+    legTicks: legTicks(g, path[0], path[1], fast), fast, siege: false, fight: false,
   })
   return true
 }
@@ -90,7 +90,9 @@ function besiege(state: GameState, map: MapData, army: Army, at: number): boolea
 }
 
 /**
- * 遭遇：兩支敵對的軍隊在圖上靠得夠近（RULES.clashRange）就打起來，一兵換一兵當場抵銷。
+ * 遭遇：兩支敵對的軍隊在圖上靠得夠近（RULES.clashRange）就打起來，一兵換一兵。
+ * 不是一碰就整隊抵銷：每一對每拍各少 RULES.clashPerTick 個，打到其中一邊沒兵為止；
+ * 還有敵軍在旁邊的那幾支被纏住（fight），停在原地，不前進、不攻城也不進城。
  * 看的是圖上的直線距離，所以不只同一條路迎面或追上：兩條路在據點附近會合、
  * 從被圍的城出來撞上城外的敵軍，都算。依編號順序一對一對算，結果才固定。
  */
@@ -99,6 +101,7 @@ function clash(state: GameState, g: Graph): void {
   const all = state.armies
   const pos = all.map((a) => posOf(g, a.path[a.leg], a.path[a.leg + 1], a.t, a.legTicks))
   const reach = (RULES.clashRange * 10) ** 2
+  for (const a of all) a.fight = false
   for (let i = 0; i < all.length; i++) {
     const a = all[i]
     for (let j = i + 1; j < all.length && a.units > 0; j++) {
@@ -106,9 +109,10 @@ function clash(state: GameState, g: Graph): void {
       if (b.units === 0 || b.owner === a.owner) continue
       const dx = pos[i][0] - pos[j][0], dy = pos[i][1] - pos[j][1]
       if (dx * dx + dy * dy > reach) continue
-      const n = Math.min(a.units, b.units)
+      const n = Math.min(RULES.clashPerTick, a.units, b.units)
       a.units -= n
       b.units -= n
+      if (a.units > 0 && b.units > 0) a.fight = b.fight = true
       state.clashes.push({ x: (pos[i][0] + pos[j][0]) >> 1, y: (pos[i][1] + pos[j][1]) >> 1, units: n })
     }
   }
@@ -199,9 +203,9 @@ export function step(state: GameState, map: MapData, g: Graph): void {
     r.acc += prodOf(map, i)
     if (r.acc >= 1000) { r.acc -= 1000; r.units += 1 }
   }
-  // 行軍（依編號順序處理，結果才固定）：先全部往前一拍（停在城外的不動），靠得夠近的敵軍先抵銷，
-  // 再挨砲台的砲，剩下的才往下走：到城外就停下來攻城或進城
-  for (const a of state.armies) if (!a.siege) a.t += 1
+  // 行軍（依編號順序處理，結果才固定）：先往前一拍（停在城外的、上一拍被敵軍纏住的不動），
+  // 靠得夠近的敵軍互相消耗，再挨砲台的砲，剩下沒被纏住的才往下走：到城外就停下來攻城或進城
+  for (const a of state.armies) if (!a.siege && !a.fight) a.t += 1
   state.gains = []
   state.takes = []
   clash(state, g)
@@ -213,7 +217,7 @@ export function step(state: GameState, map: MapData, g: Graph): void {
     const last = a.leg + 1 === a.path.length - 1
     // 這一區是終點，或中途的區已經不是自己的：走到城外就停，不進據點
     if (last || a.siege || state.regions[at].owner !== a.owner) {
-      if (!a.siege && a.t < gateTick(g, from, at, a.legTicks)) still.push(a)
+      if (a.fight || (!a.siege && a.t < gateTick(g, from, at, a.legTicks))) still.push(a)
       else if (besiege(state, map, a, at)) still.push(a)
       continue
     }
@@ -257,7 +261,7 @@ export function hashState(state: GameState): number {
   const mix = (v: number) => { h = Math.imul(h ^ (v | 0), 16777619) >>> 0 }
   mix(state.tick)
   for (const r of state.regions) { mix(r.owner); mix(r.units); mix(r.acc); mix(r.readyAt) }
-  for (const a of state.armies) { mix(a.id); mix(a.owner); mix(a.units); mix(a.leg); mix(a.t); mix(a.siege ? 1 : 0); for (const p of a.path) mix(p) }
+  for (const a of state.armies) { mix(a.id); mix(a.owner); mix(a.units); mix(a.leg); mix(a.t); mix(a.siege ? 1 : 0); mix(a.fight ? 1 : 0); for (const p of a.path) mix(p) }
   mix(state.winner)
   return h
 }

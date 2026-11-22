@@ -16,6 +16,7 @@ export const CURRENT: Engine = makeEngine(RULES_VERSION, { RULES, buildGraph, cr
 export const OLDEST_KEPT = 6
 
 const FROZEN: Record<number, () => Promise<{ engine: Engine }>> = {
+  6: () => import('./v6'),
   // freeze:insert（npm run freeze 會在這一行上面加一筆，不要改這行）
 }
 

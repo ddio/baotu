@@ -35,6 +35,19 @@ npm run fixture    # 改規則之後：替新版存一筆測試用的記錄
 
 設計上的決定與理由見 [docs/DESIGN.md](docs/DESIGN.md)。
 
+## 使用統計
+
+網站用 [GoatCounter](https://www.goatcounter.com/) 統計造訪人數，另外記下面幾種次數。不用 cookie，不記是誰；對戰的內容和記錄不會送出去。
+
+| 什麼時候 | 記成 |
+|---|---|
+| 打開網站 | `/baotu/` |
+| 開了一局 | `baotu/play/<難度>/<對手數>/v<規則版本>` |
+| 一局結束 | `baotu/end/<win｜lose｜quit>/<難度>/<對手數>/v<規則版本>` |
+| 看了一筆重播 | `baotu/replay/v<那筆記錄的規則版本>` |
+
+難度是 `easy`、`normal`、`hard`；`quit` 是中途按了重來或回主畫面，直接關掉分頁的不會有結束那一筆。統計的站台和作者別的網站共用，所以每一筆都以 `baotu/` 開頭。程式在 `src/ui/track.ts`，站台代碼寫在 `index.html`。自己架一份的話，把 `index.html` 最後那行 `<script data-goatcounter=…>` 換成自己的代碼，或整行拿掉（拿掉後遊戲照常運作）。
+
 ## 地圖與出處
 
 - 區界資料來自 [taiwan-atlas](https://github.com/dkaoster/taiwan-atlas)（MIT 授權，資料源自內政部）。

@@ -1,11 +1,11 @@
 // 各個畫面：開局、對戰、結束、記錄、重播。地圖只有一張，畫面之間換的是上下兩列與蓋在上面的紙片。
 import { DEFAULT_MAP, MAPS } from '../maps'
 import type { Difficulty } from '../sim/ai'
+import type { ViewState } from '../sim/engine'
+import { CURRENT } from '../sim/engines'
 import { canSend, createGame, forecast, sendAmount } from '../sim/game'
 import { legTicks, reach, route, stopIndex } from '../sim/graph'
 import { Match } from '../sim/match'
-import type { ViewState } from '../sim/engine'
-import { CURRENT } from '../sim/engines'
 import { addRecord, type GameRecord, makeRecord, MAX_RECORDS, openReplay, parseRecord, playable, type Replay, type Result } from '../sim/record'
 import { RULES, RULES_VERSION, TICKS_PER_SECOND } from '../sim/rules'
 import { pickStarts } from '../sim/setup'
@@ -14,6 +14,7 @@ import { clock, h } from './dom'
 import { type Marks, MapView } from './mapview'
 import { loadPrefs, loadRecords, savePrefs, saveRecords } from './store'
 import { DIFFICULTY, sideIcon, sideName, SIDES, SPECIALS, traitIcon, TRAITS } from './theme'
+import { trackEnd, trackPlay, trackReplay } from './track'
 
 const ME = 1
 const TICK_MS = 1000 / TICKS_PER_SECOND
@@ -123,6 +124,7 @@ export function startApp(root: HTMLElement): void {
 
   function startGame(start: number, opponents: number, difficulty: Difficulty): void {
     const seed = newSeed(), players = opponents + 1
+    trackPlay({ difficulty, players })
     play(new Match(map, { players, starts: pickStarts(map, start, players, seed), human: ME, difficulty, seed }))
   }
 
@@ -278,6 +280,7 @@ export function startApp(root: HTMLElement): void {
     let saved = true
     const finish = (result: Result): GameRecord | null => {
       ended = true
+      trackEnd(config, result)
       // 剛開局就放棄的不留
       if (result === 'quit' && state.tick < 15 * TICKS_PER_SECOND) return null
       const rec = makeRecord(match, result, new Date())
@@ -350,6 +353,7 @@ export function startApp(root: HTMLElement): void {
     closeSlip()
     const rec = replay.rec
     const old = rec.rulesVersion !== RULES_VERSION
+    trackReplay(rec.rulesVersion)
     view.useRules(replay.engine.view)
     const ac = new AbortController()
     let raf = 0, last = performance.now(), acc = 0, playing = true, speed = 2
@@ -520,6 +524,7 @@ export function startApp(root: HTMLElement): void {
       h('h3', {}, '誰是誰'),
       h('p', {}, ...[1, 2, 3, 4].flatMap((p) => [h('span', { class: 'who' }, sideIcon(p), sideName(p)), '　'])),
       h('p', { class: 'lead' }, '分區是用現在的鄉鎮界拼出來的，和當年的界線不完全一樣。'),
+      h('p', { class: 'lead' }, '這個網站用 GoatCounter 統計造訪人數，以及開局、勝負、重播的次數（連同難度、對手數、規則版本）。不用 cookie，不知道你是誰；對戰的內容和記錄只留在你的瀏覽器裡。'),
       h('div', { class: 'actions' }, h('button', { class: 'primary', onclick: closeSlip }, '知道了')))
   }
 

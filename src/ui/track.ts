@@ -1,4 +1,4 @@
-// 使用統計：用 GoatCounter 記開了幾局、勝負、重播了哪一版的記錄。
+// 使用統計：用 GoatCounter 記開了幾局、勝負、重播了哪一版的記錄、分享了幾次開局。
 // 只送出「難度／對手數／規則版本／結果」這幾個分類，沒有 cookie、不知道是誰，對戰內容與記錄不會送出去。
 // 腳本沒載到（擋廣告、離線、本機開發）就什麼都不做，不影響遊戲。
 import type { Difficulty } from '../sim/ai'
@@ -32,3 +32,6 @@ export const trackEnd = (g: Game, result: keyof typeof RESULT) => count(`end/${r
 
 /** 看了一筆重播；version 是那筆記錄的規則版本 */
 export const trackReplay = (version: number) => count(`replay/v${version}`, `重播　規則 v${version}${version === RULES_VERSION ? '' : '（舊版）'}`)
+
+/** 分享開局：send 是按了「分享開局」，play 是照分享的開局（網址帶著代碼）開了一局。代碼本身不送出去。 */
+export const trackShare = (what: 'send' | 'play') => count(`share/${what}`, what === 'send' ? '分享開局' : '照分享的開局開了一局')

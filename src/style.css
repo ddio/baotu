@@ -217,6 +217,10 @@ button.danger { border-color: var(--seal); color: var(--seal); }
 .records .when { color: var(--ink-soft); font-size: 0.875rem; }
 .records .acts { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .notice { font-size: 0.875rem; color: var(--seal); min-height: 1.4em; }
+/* 「分享開局」按完的回應；還沒按就不佔位置 */
+.slip .shared:empty { display: none; }
+.slip .shared { margin-top: 10px; }
+.slip .link { display: block; width: 100%; margin-top: 4px; padding: 8px; font: inherit; font-size: 0.875rem; color: var(--ink); background: transparent; border: 1px solid var(--ink); border-radius: 2px; }
 
 /* 走勢圖 */
 .chart { margin-top: 10px; position: relative; }

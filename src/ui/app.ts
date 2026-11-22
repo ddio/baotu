@@ -6,7 +6,8 @@ import type { MapData } from '../sim/types'
 import { CURRENT } from '../sim/engines'
 import { canSend, createGame, forecast, sendAmount } from '../sim/game'
 import { legTicks, reach, route, stopIndex } from '../sim/graph'
-import { Match } from '../sim/match'
+import { Match, type MatchConfig } from '../sim/match'
+import { decodeOpening, encodeOpening, openingConfig, openingOf } from '../sim/opening'
 import { addRecord, type GameRecord, makeRecord, MAX_RECORDS, openReplay, parseRecord, playable, type Replay, type Result } from '../sim/record'
 import { RULES, RULES_VERSION, TICKS_PER_SECOND } from '../sim/rules'
 import { pickStarts } from '../sim/setup'
@@ -15,7 +16,7 @@ import { clock, h } from './dom'
 import { type Marks, MapView } from './mapview'
 import { loadPrefs, loadRecords, savePrefs, saveRecords } from './store'
 import { DIFFICULTY, sideIcon, sideName, SIDES, SPECIALS, traitIcon, TRAITS } from './theme'
-import { trackEnd, trackPlay, trackReplay } from './track'
+import { trackEnd, trackPlay, trackReplay, trackShare } from './track'
 
 const ME = 1
 const TICK_MS = 1000 / TICKS_PER_SECOND
@@ -23,6 +24,8 @@ const LEVELS: Difficulty[] = ['easy', 'normal', 'hard']
 const RESULT: Record<Result, string> = { win: '勝', lose: '敗', quit: '放棄' }
 
 const newSeed = () => crypto.getRandomValues(new Uint32Array(1))[0] >>> 1
+/** 網址 # 後面的開局代碼（#g=2-13-3n-zik0zj）；沒有就是 null */
+const linkCode = () => /^#g=(.+)$/.exec(location.hash)?.[1] ?? null
 const noMarks = (me = 0): Marks => ({ me, selected: -1, targets: null, hover: -1, picked: -1, stop: -1 })
 
 export function startApp(root: HTMLElement): void {
@@ -89,15 +92,57 @@ export function startApp(root: HTMLElement): void {
     return { el, update }
   }
 
+  // ---- 開局的網址 ----
+  /** 現在網址列上的開局代碼 */
+  let linked = ''
+  /** 網址列跟著目前這一局走：重新整理、或把網址貼給別人，開出來都是同一個開局。不留瀏覽記錄。 */
+  const setLink = (config: MatchConfig | null) => {
+    linked = config ? encodeOpening(openingOf(map, config)) : ''
+    try {
+      history.replaceState(null, '', linked ? `#g=${linked}` : location.pathname + location.search)
+    } catch { /* 網址改不了（例如直接開檔案）不影響遊戲 */ }
+  }
+  // 在同一個分頁貼上別的開局網址：頁面不會重新載入，自己來
+  window.addEventListener('hashchange', () => {
+    const code = linkCode()
+    if (code !== null && code !== linked) location.reload()
+  })
+  /** 「分享開局」的按鈕和它底下的一行回應。say 是跟網址一起送出去的話。 */
+  const shareOpening = (config: MatchConfig, say: string): [HTMLButtonElement, HTMLElement] => {
+    const url = `${location.origin}${location.pathname}#g=${encodeOpening(openingOf(map, config))}`
+    const status = h('p', { class: 'lead shared', role: 'status' })
+    const button = h('button', { onclick: async () => {
+      trackShare('send')
+      // 手機：交給系統的分享選單
+      if (navigator.share) {
+        try { await navigator.share({ title: '堡圖', text: say, url }); return } catch (e) {
+          if ((e as Error).name === 'AbortError') return
+        }
+      }
+      try {
+        await navigator.clipboard.writeText(url)
+        status.replaceChildren('網址複製好了。貼給別人，打開就是同一個開局。')
+      } catch {
+        // 連剪貼簿都不能用：把網址擺出來讓人自己複製
+        const field = h('input', { class: 'link', readonly: true, value: url, 'aria-label': '這個開局的網址', onfocus: () => field.select() })
+        status.replaceChildren('複製這個網址給別人：', field)
+        field.focus()
+      }
+    } }, '分享開局')
+    return [button, status]
+  }
+
   // ================= 開局 =================
-  function showStart(picked = -1): void {
+  /** shared：照網址上的開局打（起點、對手數、難度都定好了）；message：開局畫面上先講的一句話 */
+  function showStart(picked = -1, shared: MatchConfig | null = null, message = ''): void {
     closeSlip()
     const ac = new AbortController()
     enter(() => ac.abort(), true)
+    setLink(shared)
     const prefs = loadPrefs()
-    const state = createGame(map, { players: 0, starts: [] })
+    const state = createGame(map, shared ? { players: shared.players, starts: shared.starts } : { players: 0, starts: [] })
     const head = h('div', { class: 'head' }), body = h('div', { class: 'body' })
-    const go = h('button', { class: 'primary go', onclick: () => startGame(picked, prefs.opponents, prefs.difficulty) }, '開始')
+    const go = h('button', { class: 'primary go', onclick: () => shared ? begin(shared, true) : startGame(picked, prefs.opponents, prefs.difficulty) }, '開始')
 
     const choice = <T,>(label: string, options: [T, string][], get: () => T, set: (v: T) => void) => {
       const buttons = options.map(([v, text]) => h('button', { type: 'button', onclick: () => { set(v); savePrefs(prefs); sync() } }, text))
@@ -107,9 +152,12 @@ export function startApp(root: HTMLElement): void {
     }
     const draw = () => {
       view.render(state, 0, { ...noMarks(), picked })
-      if (picked < 0) {
+      if (shared) {
+        head.textContent = `分享的開局：從${map.regions[picked].name}廳起家`
+        body.textContent = `對 ${shared.players - 1} 家，難度${DIFFICULTY[shared.difficulty]}。各家的起點標在圖上了；起點和電腦用的亂數，都跟分享出來的那一局一樣。`
+      } else if (picked < 0) {
         head.textContent = '選一個廳起家'
-        body.textContent = '點地圖上的任何一區。把其他勢力都趕出去，全島歸你就贏了。'
+        body.textContent = `${message}點地圖上的任何一區。把其他勢力都趕出去，全島歸你就贏了。`
       } else {
         const [, detail] = regionText(picked, state)
         head.textContent = `從${map.regions[picked].name}廳起家`
@@ -117,7 +165,7 @@ export function startApp(root: HTMLElement): void {
       }
       go.disabled = picked < 0
     }
-    view.svg.addEventListener('pointerdown', (e) => {
+    if (!shared) view.svg.addEventListener('pointerdown', (e) => {
       const r = view.regionAt(e.clientX, e.clientY)
       if (r >= 0) { picked = r; draw() }
     }, { signal: ac.signal })
@@ -125,7 +173,8 @@ export function startApp(root: HTMLElement): void {
     bar.replaceChildren(h('h1', {}, '堡圖'), h('span', { class: 'grow' }),
       h('button', { class: 'small', onclick: showHelp }, '玩法'),
       h('button', { class: 'small', onclick: () => showRecords() }, '記錄'))
-    panel.replaceChildren(head, body, h('div', { class: 'row' },
+    panel.replaceChildren(head, body, shared ? h('div', { class: 'row' },
+      go, h('button', { onclick: () => showStart(picked) }, '自己選起點')) : h('div', { class: 'row' },
       choice('對手', [[2, '2 家'], [3, '3 家']], () => prefs.opponents, (v) => { prefs.opponents = v }),
       choice('難度', LEVELS.map((l) => [l, DIFFICULTY[l]] as [Difficulty, string]), () => prefs.difficulty, (v) => { prefs.difficulty = v }),
       go))
@@ -134,8 +183,14 @@ export function startApp(root: HTMLElement): void {
 
   function startGame(start: number, opponents: number, difficulty: Difficulty): void {
     const seed = newSeed(), players = opponents + 1
-    trackPlay({ difficulty, players })
-    play(new Match(map, { players, starts: pickStarts(map, start, players, seed), human: ME, difficulty, seed }))
+    begin({ players, starts: pickStarts(map, start, players, seed), human: ME, difficulty, seed })
+  }
+
+  /** shared：這一局是照分享的開局打的 */
+  function begin(config: MatchConfig, shared = false): void {
+    trackPlay(config)
+    if (shared) trackShare('play')
+    play(new Match(map, config))
   }
 
   // ================= 對戰 =================
@@ -152,6 +207,8 @@ export function startApp(root: HTMLElement): void {
     let inspected = -1
 
     enter(() => { ac.abort(); cancelAnimationFrame(raf); view.clearAim() })
+    setLink(config)
+    const setup = `從${map.regions[config.starts[0]].name}廳起家，對 ${config.players - 1} 家，難度${DIFFICULTY[config.difficulty]}`
 
     const forces = forcesBar(config.players)
     const time = h('span', { class: 'digits note' }, '0:00')
@@ -277,12 +334,15 @@ export function startApp(root: HTMLElement): void {
       if (ended || paused) return
       paused = true
       release(true)
+      const [share, shared] = shareOpening(config, `「堡圖」的一個開局：${setup}。`)
       openSlip(h('h2', {}, '暫停'),
         h('p', { class: 'lead' }, `已經打了 ${clock(state.tick / TICKS_PER_SECOND)}。`),
         h('div', { class: 'actions' },
           h('button', { class: 'primary', onclick: resume }, '繼續'),
           h('button', { onclick: () => { finish('quit'); startGame(config.starts[0], config.players - 1, config.difficulty) } }, '重來'),
-          h('button', { onclick: () => { finish('quit'); showStart(config.starts[0]) } }, '回主畫面')))
+          h('button', { onclick: () => { finish('quit'); showStart(config.starts[0]) } }, '回主畫面'),
+          share),
+        shared)
     }
     document.addEventListener('visibilitychange', () => { if (document.hidden) pause() }, opt)
     document.addEventListener('keydown', (e) => {
@@ -305,16 +365,20 @@ export function startApp(root: HTMLElement): void {
       const rec = finish(result)!
       select(-1)
       view.clearAim()
-      const startName = map.regions[config.starts[0]].name
+      const took = clock(state.tick / TICKS_PER_SECOND)
+      const [share, shared] = shareOpening(config,
+        `我在「堡圖」${setup}，${result === 'win' ? `${took} 拿下全島` : `撐了 ${took}`}。同一個開局，換你試試。`)
       openSlip(
         h('h2', {}, result === 'win' ? '全島底定' : '領地盡失'),
-        h('p', { class: 'lead' }, `從${startName}廳起家，對 ${config.players - 1} 家，難度${DIFFICULTY[config.difficulty]}，打了 ${clock(state.tick / TICKS_PER_SECOND)}。`),
+        h('p', { class: 'lead' }, `${setup}，打了 ${took}。`),
         forceChart(match.history, config.players),
         saved ? '' : h('p', { class: 'notice' }, '這一局沒能存進瀏覽器（空間不足或儲存被停用），關掉分頁就看不到了。'),
         h('div', { class: 'actions' },
           h('button', { class: 'primary', onclick: () => startGame(config.starts[0], config.players - 1, config.difficulty) }, '再來一局'),
           h('button', { onclick: () => showStart() }, '換個起點'),
-          h('button', { onclick: () => showReplay(rec) }, '看重播')))
+          h('button', { onclick: () => showReplay(rec) }, '看重播'),
+          share),
+        shared)
     }
 
     // ---- 主迴圈 ----
@@ -540,9 +604,13 @@ export function startApp(root: HTMLElement): void {
       h('h3', {}, '誰是誰'),
       h('p', {}, ...[1, 2, 3, 4].flatMap((p) => [h('span', { class: 'who' }, sideIcon(p), sideName(p)), '　'])),
       h('p', { class: 'lead' }, '分區是用現在的鄉鎮界拼出來的，和當年的界線不完全一樣。'),
-      h('p', { class: 'lead' }, '這個網站用 GoatCounter 統計造訪人數，以及開局、勝負、重播的次數（連同難度、對手數、規則版本）。不用 cookie，不知道你是誰；對戰的內容和記錄只留在你的瀏覽器裡。'),
+      h('p', { class: 'lead' }, '這個網站用 GoatCounter 統計造訪人數，以及開局、勝負、重播、分享開局的次數（連同難度、對手數、規則版本）。不用 cookie，不知道你是誰；對戰的內容和記錄只留在你的瀏覽器裡。'),
       h('div', { class: 'actions' }, h('button', { class: 'primary', onclick: closeSlip }, '知道了')))
   }
 
-  showStart()
+  // 網址帶著開局代碼就照它開；代碼看不懂的當作沒有
+  const opening = decodeOpening(linkCode() ?? '')
+  const shared = opening && openingConfig(map, opening)
+  if (shared) showStart(shared.starts[0], shared)
+  else showStart(-1, null, opening && opening.mapVersion !== map.version ? '這個網址是舊版地圖的開局，現在開不出一樣的局了。' : '')
 }

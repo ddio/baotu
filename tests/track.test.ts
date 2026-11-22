@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { RULES_VERSION } from '../src/sim/rules'
-import { trackEnd, trackPlay, trackReplay } from '../src/ui/track'
+import { trackEnd, trackPlay, trackReplay, trackShare } from '../src/ui/track'
 
 describe('使用統計', () => {
   afterEach(() => vi.unstubAllGlobals())
@@ -21,12 +21,16 @@ describe('使用統計', () => {
     trackEnd({ difficulty: 'easy', players: 4 }, 'quit')
     trackReplay(RULES_VERSION)
     trackReplay(6)
+    trackShare('send')
+    trackShare('play')
     expect(count.mock.calls.map(([v]) => v.path)).toEqual([
       `play/normal/3/v${RULES_VERSION}`,
       `end/win/hard/2/v${RULES_VERSION}`,
       `end/quit/easy/3/v${RULES_VERSION}`,
       `replay/v${RULES_VERSION}`,
       'replay/v6',
+      'share/send',
+      'share/play',
     ])
     for (const [v] of count.mock.calls) {
       expect(v.event).toBe(true)

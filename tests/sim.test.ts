@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { MAPS } from '../src/maps'
 import { attackStrength, canSend, capOf, createGame, hashState, issue, sendAmount, step, totals } from '../src/sim/game'
-import { buildGraph, pathTo, reach } from '../src/sim/graph'
+import { buildGraph, pathTo, reach, route, stopIndex } from '../src/sim/graph'
 import { RULES } from '../src/sim/rules'
 import { pickStarts } from '../src/sim/setup'
 
@@ -64,13 +64,39 @@ describe('派兵', () => {
     expect(issue(s, map, g, id('苗栗'), id('新竹'))).toBe(false)
   })
 
-  it('只能打到相鄰的區，或經過自己的區到得了的地方', () => {
+  it('經過自己的區到得了的地方，就走自己的區', () => {
     const s = createGame(map, { players: 2, starts: [id('苗栗'), id('阿猴')] })
-    expect(issue(s, map, g, id('苗栗'), id('桃仔園'))).toBe(false)
     s.regions[id('新竹')].owner = 1
     const r = reach(g, s, id('苗栗'), 1, false)
     expect(pathTo(r, id('桃仔園'))).toEqual([id('苗栗'), id('新竹'), id('桃仔園')])
     expect(pathTo(r, id('臺北'))).toBeNull()
+    const path = route(g, s, id('苗栗'), 1, false, id('桃仔園'))!
+    expect(path).toEqual([id('苗栗'), id('新竹'), id('桃仔園')])
+    expect(stopIndex(s, path, 1)).toBe(2)
+  })
+
+  it('再遠也派得出去：軍隊自己找路，在路上第一個不是自己的區開打，打贏也留在那裡', () => {
+    const s = createGame(map, { players: 2, starts: [id('澎湖'), id('宜蘭')] })
+    const path = route(g, s, id('澎湖'), 1, false, id('嘉義'))!
+    expect(path).toEqual([id('澎湖'), id('鹽水港'), id('嘉義')])
+    expect(stopIndex(s, path, 1)).toBe(1)
+    s.regions[id('澎湖')].units = 60
+    expect(issue(s, map, g, id('澎湖'), id('嘉義'))).toBe(true)
+    run(s, link('澎湖', '鹽水港').ticks)
+    expect(s.armies).toHaveLength(0)
+    expect(s.regions[id('鹽水港')].owner).toBe(1)
+    expect(s.regions[id('嘉義')].owner).toBe(0)
+  })
+
+  it('路上那一區在軍隊到之前變成自己的，就繼續往前走', () => {
+    const s = createGame(map, { players: 2, starts: [id('澎湖'), id('宜蘭')] })
+    s.regions[id('澎湖')].units = 60
+    issue(s, map, g, id('澎湖'), id('嘉義'))
+    s.regions[id('鹽水港')].owner = 1
+    run(s, link('澎湖', '鹽水港').ticks)
+    expect(s.armies).toHaveLength(1)
+    run(s, link('鹽水港', '嘉義').ticks)
+    expect(s.regions[id('嘉義')].owner).toBe(1)
   })
 })
 

@@ -2,7 +2,7 @@
 import { DEFAULT_MAP, MAPS } from '../maps'
 import type { Difficulty } from '../sim/ai'
 import { attackStrength, canSend, createGame, sendAmount } from '../sim/game'
-import { pathTo, reach } from '../sim/graph'
+import { legTicks, reach, route, stopIndex } from '../sim/graph'
 import { Match } from '../sim/match'
 import { addRecord, type GameRecord, makeRecord, MAX_RECORDS, parseRecord, playable, Replay, type Result } from '../sim/record'
 import { RULES, TICKS_PER_SECOND } from '../sim/rules'
@@ -20,7 +20,7 @@ const LEVELS: Difficulty[] = ['easy', 'normal', 'hard']
 const RESULT: Record<Result, string> = { win: '勝', lose: '敗', quit: '放棄' }
 
 const newSeed = () => crypto.getRandomValues(new Uint32Array(1))[0] >>> 1
-const noMarks = (me = 0): Marks => ({ me, selected: -1, targets: null, hover: -1, picked: -1 })
+const noMarks = (me = 0): Marks => ({ me, selected: -1, targets: null, hover: -1, picked: -1, stop: -1 })
 
 export function startApp(root: HTMLElement): void {
   const map = MAPS[DEFAULT_MAP]
@@ -132,10 +132,9 @@ export function startApp(root: HTMLElement): void {
     let raf = 0, last = performance.now(), acc = 0
     let speed = 1, paused = false, ended = false
     let dragging = false, moved = false, downX = 0, downY = 0
+    /** 拖曳中手指在地圖上的位置 */
+    let aimX = 0, aimY = 0
     let inspected = -1
-    /** 從選中的區出發，到各區要幾拍 */
-    let eta: number[] = []
-    let prev: number[] = []
 
     enter(() => { ac.abort(); cancelAnimationFrame(raf); view.clearAim() })
 
@@ -157,32 +156,55 @@ export function startApp(root: HTMLElement): void {
       marks.selected = r
       marks.hover = -1
       if (r < 0) { marks.targets = null; return }
-      const rr = reach(graph, state, r, ME, map.regions[r].trait === 'post')
-      eta = rr.dist
-      prev = rr.prev
-      marks.targets = eta.map((d, i) => i !== r && d < Infinity)
+      // 圈起來的是只經過自己的區就到得了的；其他的區也能指，軍隊會在路上先打
+      const direct = reach(graph, state, r, ME, map.regions[r].trait === 'post').dist
+      marks.targets = direct.map((d, i) => i !== r && d < Infinity)
     }
     const mine = (r: number) => r >= 0 && state.regions[r].owner === ME
     const order = (from: number, to: number) => { match.order(from, to); select(-1) }
 
+    /** 現在從 from 派到 to：走哪條路、會停在第幾站、到那裡要多久 */
+    const plan = (from: number, to: number) => {
+      const fast = map.regions[from].trait === 'post'
+      const path = route(graph, state, from, ME, fast, to)!
+      const stop = stopIndex(state, path, ME)
+      let ticks = 0, ridge = false
+      for (let i = 0; i < stop; i++) {
+        ticks += legTicks(graph, path[i], path[i + 1], fast)
+        if (graph.links[path[i]].find((l) => l.to === path[i + 1])?.kind === 'mountain') ridge = true
+      }
+      return { path, stop, at: path[stop], ticks, ridge }
+    }
+
     const orderText = (from: number, to: number): [string, string] => {
-      const a = map.regions[from], b = map.regions[to], target = state.regions[to]
+      const p = plan(from, to)
+      const a = map.regions[from], b = map.regions[to], target = state.regions[p.at]
       const n = sendAmount(state.regions[from].units)
-      const secs = Math.max(1, Math.round(eta[to] / TICKS_PER_SECOND))
-      const path = pathTo({ dist: eta, prev }, to) ?? []
-      let ridge = false
-      for (let i = 0; i + 1 < path.length; i++) if (graph.links[path[i]].find((l) => l.to === path[i + 1])?.kind === 'mountain') ridge = true
-      const trip = `約 ${secs} 秒到${ridge ? '（要翻山）' : ''}`
+      const secs = Math.max(1, Math.round(p.ticks / TICKS_PER_SECOND))
+      const trip = `約 ${secs} 秒到${p.ridge ? '（要翻山）' : ''}`
       if (target.owner === ME) return [`${a.name} → ${b.name}　增援 ${n} 兵`, `${trip}。`]
-      const power = attackStrength(map, to, n)
+      const power = attackStrength(map, p.at, n)
       const fort = power !== n ? `，砲台讓你的兵只算 ${power}` : ''
-      return [`${a.name} → ${b.name}　派 ${n} 兵`, `守軍 ${target.units}${fort}。${trip}，${power > target.units ? '拿得下' : '拿不下，只能削弱守軍'}。`]
+      const odds = power > target.units ? '拿得下' : '拿不下，只能削弱守軍'
+      const head = `${a.name} → ${b.name}　派 ${n} 兵`
+      if (p.at !== to) return [head, `路上的${map.regions[p.at].name}不是你的，會先在那裡開打：守軍 ${target.units}${fort}，${trip}，${odds}。`]
+      return [head, `守軍 ${target.units}${fort}。${trip}，${odds}。`]
+    }
+    /** 把準備派兵的路線畫在地圖上 */
+    const drawAim = () => {
+      marks.stop = -1
+      if (marks.selected >= 0 && marks.hover >= 0) {
+        const p = plan(marks.selected, marks.hover)
+        if (p.at !== marks.hover) marks.stop = p.at
+        view.setRoute(p.path, p.stop)
+      } else if (dragging && moved) view.setAim(marks.selected, aimX, aimY)
+      else view.clearAim()
     }
     const updatePanel = () => {
       if (marks.selected >= 0 && marks.hover >= 0) say(...orderText(marks.selected, marks.hover))
       else if (marks.selected >= 0) {
         const r = map.regions[marks.selected]
-        say(`${r.name}廳　派出 ${sendAmount(state.regions[marks.selected].units)} 兵`, '拖到目標放開，或直接點目標。圈起來的區都到得了；再點一次取消。')
+        say(`${r.name}廳　派出 ${sendAmount(state.regions[marks.selected].units)} 兵`, '拖到目標放開，或直接點目標；再點一次取消。圈起來的區可以直達，其他的會在路上先開打。')
       } else if (inspected >= 0) say(...regionText(inspected, state))
       else say('從你的區拖到目標，派出一半的兵', '藍色圓形是你。兵會自己長，派兵後那一區要等幾秒才能再派。')
     }
@@ -194,7 +216,7 @@ export function startApp(root: HTMLElement): void {
       const r = view.regionAt(e.clientX, e.clientY)
       if (marks.selected >= 0) {
         const from = marks.selected
-        if (r >= 0 && r !== from && marks.targets?.[r]) { order(from, r); return }
+        if (r >= 0 && r !== from) { order(from, r); return }
         select(-1)
         if (r === from) return
       }
@@ -212,17 +234,16 @@ export function startApp(root: HTMLElement): void {
       if (marks.selected < 0 || paused || ended) return
       if (!dragging && e.pointerType !== 'mouse') return
       const r = view.regionAt(e.clientX, e.clientY)
-      marks.hover = r >= 0 && r !== marks.selected && marks.targets?.[r] ? r : -1
+      marks.hover = r >= 0 && r !== marks.selected ? r : -1
       if (!dragging) return
       if (Math.hypot(e.clientX - downX, e.clientY - downY) > 8) moved = true
-      if (!moved) return
-      if (marks.hover >= 0) view.setAim(marks.selected, map.regions[marks.hover].x, map.regions[marks.hover].y, true)
-      else { const p = view.point(e.clientX, e.clientY); view.setAim(marks.selected, p.x, p.y, false) }
+      const p = view.point(e.clientX, e.clientY)
+      aimX = p.x
+      aimY = p.y
     }, opt)
     const release = (cancelled: boolean) => {
       if (!dragging) return
       dragging = false
-      view.clearAim()
       if (cancelled) select(-1)
       else if (marks.hover >= 0) order(marks.selected, marks.hover)
       else if (moved) select(-1)
@@ -279,8 +300,8 @@ export function startApp(root: HTMLElement): void {
     // ---- 主迴圈 ----
     const afterTick = () => {
       if (marks.selected >= 0) {
-        if (!mine(marks.selected)) { dragging = false; view.clearAim(); select(-1) }
-        else { const hover = marks.hover; select(marks.selected); marks.hover = hover >= 0 && marks.targets?.[hover] ? hover : -1 }
+        if (!mine(marks.selected)) { dragging = false; select(-1) }
+        else { const hover = marks.hover; select(marks.selected); marks.hover = hover }
       }
       if (state.tick % 5 === 0) {
         forces.update(state)
@@ -300,6 +321,7 @@ export function startApp(root: HTMLElement): void {
           if (match.over) { forces.update(state); end() }
         }
       }
+      drawAim()
       view.render(state, ended ? 0 : Math.min(1, acc / TICK_MS), marks)
       updatePanel()
     }
@@ -443,7 +465,7 @@ export function startApp(root: HTMLElement): void {
       h('ul', {},
         h('li', {}, '每一區上的數字是兵力。你的區會自己長兵，長到上限為止；中立的區不會長。'),
         h('li', {}, '從你的區拖到另一區，就派出一半的兵。也可以先點自己的區，再點目標。'),
-        h('li', {}, '兵只能走相鄰的區；中途經過的都得是你的區。'),
+        h('li', {}, '兵沿著相鄰的區走，會自己找路，拉線時看得到路線。路上第一個不是你的區，就是開打的地方。'),
         h('li', {}, '到了別人的區就開打，一兵換一兵；打贏了，剩下的兵留下來佔領。'),
         h('li', {}, `派兵後，那一區要等 ${RULES.cooldownTicks / TICKS_PER_SECOND} 秒才能再派。`),
         h('li', {}, '翻越中央山脈（棕色的山線）要花三倍時間；澎湖只能走虛線標出的三條航線。')),

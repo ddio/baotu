@@ -35,8 +35,9 @@ export interface Reach {
 /**
  * 從 from 出發、以 owner 的身分能到哪些區。
  * 中途只能經過自己的區；終點可以是任何區。
+ * anywhere 為 true 時不管是誰的區都當成能通過（用來替打不到的遠處找路）。
  */
-export function reach(g: Graph, state: GameState, from: number, owner: PlayerId, fast: boolean): Reach {
+export function reach(g: Graph, state: GameState, from: number, owner: PlayerId, fast: boolean, anywhere = false): Reach {
   const dist = new Array<number>(g.n).fill(Infinity)
   const prev = new Array<number>(g.n).fill(-1)
   const done = new Array<boolean>(g.n).fill(false)
@@ -47,7 +48,7 @@ export function reach(g: Graph, state: GameState, from: number, owner: PlayerId,
     if (u < 0) break
     done[u] = true
     // 不是自己的區只能當終點，不能再往下走
-    if (u !== from && state.regions[u].owner !== owner) continue
+    if (!anywhere && u !== from && state.regions[u].owner !== owner) continue
     for (const l of g.links[u]) {
       const t = fast ? Math.max(1, Math.ceil((l.ticks * RULES.postNum) / RULES.postDen)) : l.ticks
       const d = dist[u] + t
@@ -62,4 +63,20 @@ export function pathTo(r: Reach, to: number): number[] | null {
   const path = [to]
   for (let u = r.prev[to]; u >= 0; u = r.prev[u]) path.push(u)
   return path.reverse()
+}
+
+/**
+ * 從 from 派兵到 to 會走哪條路（含起點與終點）。
+ * 能只經過自己的區就走其中最快的；不行就走全圖最快的路，
+ * 這時軍隊會在路上第一個不是自己的區停下來開打，打贏也留在那裡。
+ */
+export function route(g: Graph, state: GameState, from: number, owner: PlayerId, fast: boolean, to: number): number[] | null {
+  if (from === to) return null
+  return pathTo(reach(g, state, from, owner, fast), to) ?? pathTo(reach(g, state, from, owner, fast, true), to)
+}
+
+/** 照這條路走，會在第幾站停下來：路上第一個不是自己的區，都是自己的就是終點。 */
+export function stopIndex(state: GameState, path: number[], owner: PlayerId): number {
+  for (let i = 1; i < path.length; i++) if (state.regions[path[i]].owner !== owner) return i
+  return path.length - 1
 }

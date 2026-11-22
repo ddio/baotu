@@ -1,5 +1,5 @@
 // 遊戲規則本體：純函式、固定節拍、只用整數。不碰 DOM、不用 Math.random。
-import { type Graph, legTicks, pathTo, reach } from './graph'
+import { type Graph, legTicks, route } from './graph'
 import { RULES } from './rules'
 import type { Army, GameState, MapData, PlayerId, Region } from './types'
 
@@ -40,13 +40,14 @@ export function canSend(state: GameState, from: number): boolean {
 /**
  * 下指令：從 from 派一半的兵到 to。成功回傳 true。
  * 派兵的人就是 from 現在的主人，所以指令本身不用記是誰下的。
+ * to 可以是任何一區：到不了的遠處，軍隊會沿路走到第一個不是自己的區開打。
  */
 export function issue(state: GameState, map: MapData, g: Graph, from: number, to: number): boolean {
   if (state.winner || from === to || from < 0 || to < 0 || from >= g.n || to >= g.n) return false
   if (!canSend(state, from)) return false
   const src = state.regions[from]
   const fast = map.regions[from].trait === 'post'
-  const path = pathTo(reach(g, state, from, src.owner, fast), to)
+  const path = route(g, state, from, src.owner, fast, to)
   if (!path) return false
   const n = sendAmount(src.units)
   src.units -= n

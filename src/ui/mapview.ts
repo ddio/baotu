@@ -23,6 +23,8 @@ export interface Marks {
   hover: number
   /** 開局畫面挑中的起點，沒有是 -1 */
   picked: number
+  /** 這次派兵會先在哪一區停下來開打（不是目標本身的時候才標），沒有是 -1 */
+  stop: number
 }
 
 interface NodeEls {
@@ -45,7 +47,8 @@ export class MapView {
   private readonly nodes: NodeEls[] = []
   private readonly armyLayer: SVGGElement
   private readonly armies = new Map<number, ArmyEls>()
-  private readonly aim: SVGLineElement
+  private readonly aim: SVGPolylineElement
+  private readonly aimRest: SVGPolylineElement
 
   constructor(readonly map: MapData) {
     const { width: W, height: H } = map
@@ -90,7 +93,8 @@ export class MapView {
     ;[...'明治三十四年二十廳'].forEach((ch, i) => title.append(s('text', { x: 108, y: 70 + i * 21, class: 'subtitle' }, ch)))
     this.svg.append(title)
 
-    this.aim = s('line', { class: 'aim', visibility: 'hidden' })
+    this.aim = s('polyline', { class: 'aim', visibility: 'hidden' })
+    this.aimRest = s('polyline', { class: 'aim-rest', visibility: 'hidden' })
     this.armyLayer = s('g', {})
     const nodeLayer = s('g', {})
     for (const r of map.regions) {
@@ -103,7 +107,7 @@ export class MapView {
       this.nodes.push({ g, shape, units, ring, halo, owner: -1, shown: -1, ringOn: false, cls: '' })
       nodeLayer.append(g)
     }
-    this.svg.append(this.aim, this.armyLayer, nodeLayer)
+    this.svg.append(this.aimRest, this.aim, this.armyLayer, nodeLayer)
   }
 
   /** 據點下面的地名；有特色的區前面多一個小方印。貼著圖框下緣的區，地名改放右邊。 */
@@ -142,18 +146,27 @@ export class MapView {
     return -1
   }
 
-  /** 拖曳時從出發區拉出來的那條線 */
-  setAim(from: number, x: number, y: number, ok: boolean): void {
+  /** 拖曳時還沒指到任何一區：從出發區拉一條線到手指的位置 */
+  setAim(from: number, x: number, y: number): void {
     const r = this.map.regions[from]
-    this.aim.setAttribute('x1', String(r.x))
-    this.aim.setAttribute('y1', String(r.y))
-    this.aim.setAttribute('x2', String(x))
-    this.aim.setAttribute('y2', String(y))
-    this.aim.setAttribute('class', ok ? 'aim ok' : 'aim')
+    this.aim.setAttribute('points', `${r.x},${r.y} ${x.toFixed(1)},${y.toFixed(1)}`)
+    this.aim.setAttribute('class', 'aim')
     this.aim.setAttribute('visibility', 'visible')
+    this.aimRest.setAttribute('visibility', 'hidden')
+  }
+  /** 指到某一區：畫出軍隊會走的路。走得到的那一段（到第 stop 站）是實線，後面到目標的是淡淡的虛線。 */
+  setRoute(path: number[], stop: number): void {
+    const pts = (ids: number[]) => ids.map((i) => `${this.map.regions[i].x},${this.map.regions[i].y}`).join(' ')
+    this.aim.setAttribute('points', pts(path.slice(0, stop + 1)))
+    this.aim.setAttribute('class', 'aim ok')
+    this.aim.setAttribute('visibility', 'visible')
+    const rest = stop < path.length - 1
+    if (rest) this.aimRest.setAttribute('points', pts(path.slice(stop)))
+    this.aimRest.setAttribute('visibility', rest ? 'visible' : 'hidden')
   }
   clearAim(): void {
     this.aim.setAttribute('visibility', 'hidden')
+    this.aimRest.setAttribute('visibility', 'hidden')
   }
 
   /** 把目前的狀態畫出來。alpha 是這一拍走了多少（0–1），讓行軍看起來連續。 */
@@ -191,6 +204,7 @@ export class MapView {
       else if (i === marks.hover) cls += ' hover'
       else if (marks.targets?.[i]) cls += ' target'
       if (i === marks.picked) cls += ' picked'
+      if (i === marks.stop) cls += ' stop'
       if (cooling) cls += ' cooling'
       if (cls !== n.cls) { n.cls = cls; n.g.setAttribute('class', cls) }
 

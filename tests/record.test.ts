@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest'
 import { MAPS } from '../src/maps'
-import { hashState } from '../src/sim/game'
 import { Match, type MatchConfig } from '../src/sim/match'
-import { addRecord, type GameRecord, makeRecord, MAX_RECORDS, parseRecord, playable, Replay } from '../src/sim/record'
+import { OLDEST_KEPT } from '../src/sim/engines'
+import { addRecord, type GameRecord, makeRecord, MAX_RECORDS, openReplay, parseRecord, playable, Replay } from '../src/sim/record'
 import { RULES_VERSION } from '../src/sim/rules'
 import { pickStarts } from '../src/sim/setup'
 
@@ -25,7 +25,7 @@ describe('記錄與重播', () => {
     expect(r.faithful).toBe(true)
     expect(r.history).toEqual(m.history)
     r.seek(rec.ticks)
-    expect(hashState(r.state)).toBe(rec.hash)
+    expect(r.hash()).toBe(rec.hash)
     expect(r.state.winner).toBe(m.state.winner)
   })
 
@@ -34,10 +34,10 @@ describe('記錄與重播', () => {
     const mid = Math.floor(rec.ticks / 2)
     a.seek(mid)
     for (let i = 0; i < mid; i++) b.step()
-    expect(hashState(a.state)).toBe(hashState(b.state))
+    expect(a.hash()).toBe(b.hash())
     a.seek(rec.ticks)
     a.seek(mid)
-    expect(hashState(a.state)).toBe(hashState(b.state))
+    expect(a.hash()).toBe(b.hash())
   })
 
   it('重播先把整局的易手記下來：哪一拍、哪一區、從誰換到誰', () => {
@@ -93,9 +93,12 @@ describe('記錄與重播', () => {
     expect(new Replay(odd, map).faithful).toBe(true)
   })
 
-  it('規則或地圖版本不同的記錄不能重播', () => {
+  it('沒有留著那一版規則、或地圖版本不同的記錄不能重播', async () => {
     expect(playable(rec, MAPS)).toBe(true)
+    expect((await openReplay(rec, MAPS))?.faithful).toBe(true)
     expect(playable({ ...rec, rulesVersion: RULES_VERSION + 1 }, MAPS)).toBe(false)
+    expect(await openReplay({ ...rec, rulesVersion: RULES_VERSION + 1 }, MAPS)).toBeNull()
+    expect(playable({ ...rec, rulesVersion: OLDEST_KEPT - 1 }, MAPS)).toBe(false)
     expect(playable({ ...rec, mapVersion: map.version + 1 }, MAPS)).toBe(false)
     expect(playable({ ...rec, map: 'nowhere' }, MAPS)).toBe(false)
   })

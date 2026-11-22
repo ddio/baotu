@@ -4,10 +4,11 @@ import type { Difficulty } from '../sim/ai'
 import { canSend, createGame, forecast, sendAmount } from '../sim/game'
 import { legTicks, reach, route, stopIndex } from '../sim/graph'
 import { Match } from '../sim/match'
-import { addRecord, type GameRecord, makeRecord, MAX_RECORDS, parseRecord, playable, Replay, type Result } from '../sim/record'
-import { RULES, TICKS_PER_SECOND } from '../sim/rules'
+import type { ViewState } from '../sim/engine'
+import { CURRENT } from '../sim/engines'
+import { addRecord, type GameRecord, makeRecord, MAX_RECORDS, openReplay, parseRecord, playable, type Replay, type Result } from '../sim/record'
+import { RULES, RULES_VERSION, TICKS_PER_SECOND } from '../sim/rules'
 import { pickStarts } from '../sim/setup'
-import type { GameState } from '../sim/types'
 import { forceChart } from './chart'
 import { clock, h } from './dom'
 import { type Marks, MapView } from './mapview'
@@ -24,7 +25,7 @@ const noMarks = (me = 0): Marks => ({ me, selected: -1, targets: null, hover: -1
 
 export function startApp(root: HTMLElement): void {
   const map = MAPS[DEFAULT_MAP]
-  const view = new MapView(map)
+  const view = new MapView(map, CURRENT.view)
   const bar = h('header', { class: 'bar' })
   const stage = h('main', { class: 'stage' }, view.svg)
   const panel = h('footer', { class: 'panel' })
@@ -37,7 +38,9 @@ export function startApp(root: HTMLElement): void {
 
   // ---- 蓋在上面的紙片 ----
   let veil: HTMLElement | null = null
-  const closeSlip = () => { veil?.remove(); veil = null }
+  /** 紙片每換一次就加一：等舊版規則下載的重播，回來時發現紙片換過了就不播 */
+  let slips = 0
+  const closeSlip = () => { veil?.remove(); veil = null; slips += 1 }
   const openSlip = (...kids: (Node | string)[]) => {
     closeSlip()
     const slip = h('div', { class: 'slip', role: 'dialog', 'aria-modal': 'true', tabindex: '-1' }, ...kids)
@@ -46,7 +49,7 @@ export function startApp(root: HTMLElement): void {
     slip.focus()
   }
 
-  const regionText = (i: number, state: GameState): [string, string] => {
+  const regionText = (i: number, state: ViewState): [string, string] => {
     const r = map.regions[i], st = state.regions[i], t = TRAITS[r.trait]
     const owner = st.owner === 0 ? '中立' : sideName(st.owner)
     return [`${r.name}廳　${owner}　${st.units} 兵`, `${t ? `【${t.name}】${t.text}。` : ''}今${r.today}。`]
@@ -62,7 +65,7 @@ export function startApp(root: HTMLElement): void {
       return { el, num }
     })
     const el = h('div', { class: 'forces', role: 'img', 'aria-label': '各方兵力' }, ...segs.map((x) => x.el))
-    const update = (state: GameState) => {
+    const update = (state: ViewState) => {
       const t = new Array<number>(players + 1).fill(0)
       for (const r of state.regions) t[r.owner] += r.units
       for (const a of state.armies) t[a.owner] += a.units
@@ -331,9 +334,23 @@ export function startApp(root: HTMLElement): void {
   }
 
   // ================= 重播 =================
+  /** 先拿到記錄那一版的規則（舊版要下載），拿到了才換畫面 */
   function showReplay(rec: GameRecord): void {
+    const asked = slips
+    openReplay(rec, MAPS).then(
+      (replay) => {
+        if (slips !== asked) return
+        if (replay) playReplay(replay)
+        else showRecords('這筆記錄的規則或地圖已經沒有留著，不能重播。')
+      },
+      () => { if (slips === asked) showRecords(`規則 v${rec.rulesVersion} 沒能下載，連上網路後再試一次。`) })
+  }
+
+  function playReplay(replay: Replay): void {
     closeSlip()
-    const replay = new Replay(rec, map)
+    const rec = replay.rec
+    const old = rec.rulesVersion !== RULES_VERSION
+    view.useRules(replay.engine.view)
     const ac = new AbortController()
     let raf = 0, last = performance.now(), acc = 0, playing = true, speed = 2
     // 戰報：你攻下、失守的據點，在地圖角落留幾秒。照時間軸上的位置算，拉時間軸也對得上
@@ -361,7 +378,7 @@ export function startApp(root: HTMLElement): void {
       }
     }
     stage.append(news)
-    enter(() => { ac.abort(); cancelAnimationFrame(raf); news.remove() })
+    enter(() => { ac.abort(); cancelAnimationFrame(raf); news.remove(); view.useRules(CURRENT.view) })
 
     const forces = forcesBar(rec.config.players)
     bar.replaceChildren(forces.el, h('button', { class: 'small', onclick: () => showRecords() }, '離開重播'))
@@ -377,7 +394,7 @@ export function startApp(root: HTMLElement): void {
     slider.addEventListener('input', () => { playing = false; replay.seek(Number(slider.value)); acc = 0; sync() })
     const startName = map.regions[rec.config.starts[0]].name
     panel.replaceChildren(
-      h('div', { class: 'body' }, `${when(rec)}　從${startName}廳起家，${RESULT[rec.result]}。${replay.faithful ? '' : '這筆記錄用現在的規則跑出來的結果和當時不一樣。'}`),
+      h('div', { class: 'body' }, `${when(rec)}　從${startName}廳起家，${RESULT[rec.result]}。${old ? `當時是規則 v${rec.rulesVersion}，跟現在的玩法說明不完全一樣。` : ''}${replay.faithful ? '' : '這筆記錄重跑出來的結果和當時不一樣。'}`),
       h('div', { class: 'row' }, toggle, speedBtn, slider, time))
     const sync = () => {
       toggle.textContent = playing && !replay.done ? '暫停' : replay.done ? '從頭播' : '播放'
@@ -449,7 +466,7 @@ export function startApp(root: HTMLElement): void {
         } }, '刪除')
         return h('li', {},
           h('div', { class: 'what' }, `${RESULT[rec.result]}　${start}廳起家，對 ${rec.config.players - 1} 家，難度${DIFFICULTY[rec.config.difficulty]}`),
-          h('div', { class: 'when digits' }, `${when(rec)}　打了 ${clock(rec.ticks / TICKS_PER_SECOND)}${ok ? '' : '　規則或地圖已改版，不能重播'}`),
+          h('div', { class: 'when digits' }, `${when(rec)}　打了 ${clock(rec.ticks / TICKS_PER_SECOND)}${ok ? (rec.rulesVersion === RULES_VERSION ? '' : `　規則 v${rec.rulesVersion}`) : '　規則或地圖已改版，不能重播'}`),
           h('div', { class: 'acts' },
             h('button', { class: 'small', disabled: !ok, onclick: () => showReplay(rec) }, '重播'),
             h('button', { class: 'small', onclick: () => download(fileName(rec), rec) }, '匯出'), del))

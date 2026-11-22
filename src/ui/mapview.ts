@@ -1,6 +1,6 @@
 // 地圖畫面：一張 SVG。只負責把狀態畫出來、回答「這個位置是哪一區」，不管規則。
-import { RULES } from '../sim/rules'
-import type { Clash, GameState, MapData, PlayerId, Shot } from '../sim/types'
+import type { ViewRules, ViewState } from '../sim/engine'
+import type { Clash, MapData, PlayerId, Shot } from '../sim/types'
 import { s } from './dom'
 import { BADGE, shapePath, SIDES, SPECIALS, textShift, traitBadge, TRAITS } from './theme'
 
@@ -81,7 +81,8 @@ export class MapView {
   private readonly aim: SVGPolylineElement
   private readonly aimRest: SVGPolylineElement
 
-  constructor(readonly map: MapData) {
+  /** rules 是畫面要用到的規則數字；重播舊記錄時用 useRules 換成那一版的 */
+  constructor(readonly map: MapData, private rules: ViewRules) {
     const { width: W, height: H } = map
     this.svg = s('svg', { viewBox: `0 0 ${W} ${H}`, class: 'map', role: 'img', 'aria-label': map.name })
 
@@ -122,7 +123,7 @@ export class MapView {
     const ranges = s('g', {})
     map.regions.forEach((r, i) => {
       if (r.trait !== 'fort') return
-      const ring = s('circle', { cx: r.x, cy: r.y, r: RULES.fort.range, class: 'range' })
+      const ring = s('circle', { cx: r.x, cy: r.y, r: rules.fortRange, class: 'range' })
       this.ranges.set(i, ring)
       ranges.append(ring)
     })
@@ -229,7 +230,13 @@ export class MapView {
   }
 
   /** 把目前的狀態畫出來。alpha 是這一拍走了多少（0–1），讓行軍看起來連續。 */
-  render(state: GameState, alpha: number, marks: Marks): void {
+  /** 換一版規則的數字（砲台射程圈、冷卻圈） */
+  useRules(rules: ViewRules): void {
+    this.rules = rules
+    for (const ring of this.ranges.values()) ring.setAttribute('r', String(rules.fortRange))
+  }
+
+  render(state: ViewState, alpha: number, marks: Marks): void {
     const regs = this.map.regions
     for (let i = 0; i < regs.length; i++) {
       const r = state.regions[i], n = this.nodes[i]
@@ -257,7 +264,7 @@ export class MapView {
 
       const cooling = marks.me !== 0 && r.owner === marks.me && state.tick < r.readyAt
       if (cooling) {
-        const left = (r.readyAt - state.tick - alpha) / RULES.cooldownTicks
+        const left = (r.readyAt - state.tick - alpha) / this.rules.cooldownTicks
         n.ring.setAttribute('stroke-dasharray', `${Math.max(0, Math.min(1, left)) * 100} 100`)
       }
       if (cooling !== n.ringOn) { n.ringOn = cooling; n.ring.setAttribute('visibility', cooling ? 'visible' : 'hidden') }
@@ -354,7 +361,7 @@ export class MapView {
    * 路上的軍隊：一排一排的小點，兵越多點越多。最前面那一排就是軍隊在規則裡的位置，
    * 後面幾排沿著走過的路跟著；還沒出城的、已經進城的那幾排不畫（藏在據點底下）。
    */
-  private renderArmies(state: GameState, time: number, alpha: number): void {
+  private renderArmies(state: ViewState, time: number, alpha: number): void {
     const regs = this.map.regions
     const dist = (a: number, b: number) => Math.hypot(regs[b].x - regs[a].x, regs[b].y - regs[a].y)
     const seen = new Set<number>()

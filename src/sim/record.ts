@@ -1,11 +1,13 @@
 // 對戰記錄與重播。記錄只存「開局設定＋所有指令」，重播時把指令照拍數餵回規則。
 // 電腦對手的指令也記在裡面，所以重播不用再跑一次電腦，改了電腦的打法舊記錄也還能播。
+// 規則改了就不一樣：每筆記錄帶著規則版本，重播時用那一版的引擎（engines.ts）來跑。
 import type { Difficulty } from './ai'
-import { createGame, hashState, issue, step, totals } from './game'
-import { buildGraph, type Graph } from './graph'
+import type { Engine, Sim, ViewState } from './engine'
+import { CURRENT, hasEngine, loadEngine } from './engines'
+import { hashState } from './game'
 import { type Match, type MatchConfig, SAMPLE_TICKS } from './match'
 import { RULES_VERSION } from './rules'
-import type { GameState, MapData, Take } from './types'
+import type { MapData, Take } from './types'
 
 export const RECORD_FORMAT = 1
 export const MAX_RECORDS = 32
@@ -46,10 +48,17 @@ export function makeRecord(match: Match, result: Result, date: Date): GameRecord
   }
 }
 
-/** 這筆記錄能不能用現在的規則與地圖重播。 */
+/** 這筆記錄能不能重播：那一版的規則還留著，地圖也沒改版。 */
 export function playable(rec: GameRecord, maps: Record<string, MapData>): boolean {
   const map = maps[rec.map]
-  return rec.format === RECORD_FORMAT && rec.rulesVersion === RULES_VERSION && !!map && map.version === rec.mapVersion
+  return rec.format === RECORD_FORMAT && hasEngine(rec.rulesVersion) && !!map && map.version === rec.mapVersion
+}
+
+/** 準備重播：先拿到那一版的引擎（舊版要下載，失敗會丟出例外）。不能重播的回傳 null。 */
+export async function openReplay(rec: GameRecord, maps: Record<string, MapData>): Promise<Replay | null> {
+  if (!playable(rec, maps)) return null
+  const engine = await loadEngine(rec.rulesVersion)
+  return engine && new Replay(rec, maps[rec.map], engine)
 }
 
 /** 加一筆到最前面；同一筆不重複，超過上限就丟掉最舊的。 */
@@ -89,8 +98,7 @@ export function parseRecord(x: unknown): GameRecord | null {
 
 /** 重播：可以一拍一拍走，也可以直接跳到某一拍。 */
 export class Replay {
-  readonly graph: Graph
-  state: GameState
+  private sim: Sim
   /** 整局的兵力走勢（建立時先跑完一遍算出來） */
   readonly history: number[][] = []
   /** 整局裡每一次換主人，照時間排（建立時一起算出來）；tick 是發生之後的那一拍 */
@@ -99,23 +107,33 @@ export class Replay {
   readonly faithful: boolean
   private next = 0
 
-  constructor(readonly rec: GameRecord, readonly map: MapData) {
+  /** engine 要是記錄上那一版的規則；不給就用現行的 */
+  constructor(readonly rec: GameRecord, readonly map: MapData, readonly engine: Engine = CURRENT) {
     if (rec.config.starts.some((s) => s >= map.regions.length)) throw new Error('記錄與地圖不合')
-    this.graph = buildGraph(map)
-    this.state = this.fresh()
-    this.history.push(totals(this.state))
+    this.sim = this.fresh()
+    this.history.push(this.sim.totals())
     while (this.state.tick < rec.ticks && !this.state.winner) {
       this.step()
       for (const e of this.state.takes) this.takes.push({ ...e, tick: this.state.tick })
-      if (this.state.tick % SAMPLE_TICKS === 0) this.history.push(totals(this.state))
+      if (this.state.tick % SAMPLE_TICKS === 0) this.history.push(this.sim.totals())
     }
-    this.faithful = hashState(this.state) === rec.hash
+    this.faithful = this.sim.hash() === rec.hash
     this.seek(0)
   }
 
-  private fresh(): GameState {
+  private fresh(): Sim {
     this.next = 0
-    return createGame(this.map, { players: this.rec.config.players, starts: this.rec.config.starts })
+    return this.engine.start(this.map, { players: this.rec.config.players, starts: this.rec.config.starts })
+  }
+
+  /** 現在這一拍的狀態（給畫面看的） */
+  get state(): ViewState {
+    return this.sim.state
+  }
+
+  /** 現在這一拍的雜湊 */
+  hash(): number {
+    return this.sim.hash()
   }
 
   get done(): boolean {
@@ -126,15 +144,15 @@ export class Replay {
     if (this.done) return
     const c = this.rec.commands
     while (this.next < c.length && c[this.next] <= this.state.tick) {
-      if (c[this.next] === this.state.tick) issue(this.state, this.map, this.graph, c[this.next + 1], c[this.next + 2])
+      if (c[this.next] === this.state.tick) this.sim.issue(c[this.next + 1], c[this.next + 2])
       this.next += 3
     }
-    step(this.state, this.map, this.graph)
+    this.sim.step()
   }
 
   seek(tick: number): void {
     const target = Math.max(0, Math.min(tick, this.rec.ticks))
-    if (target < this.state.tick) this.state = this.fresh()
+    if (target < this.state.tick) this.sim = this.fresh()
     while (this.state.tick < target && !this.done) this.step()
   }
 }

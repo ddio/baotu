@@ -14,13 +14,15 @@ const g = buildGraph(map)
 const LIMIT = 9000 // 15 分鐘
 const GAMES = Number(process.env.GAMES ?? 400)
 
-/** 前一版的「強」 */
-const BASE: AiProfile = { ...AI_PROFILE.hard }
+/** 前一版的「強」：把這次要比的欄位改回原本的數值 */
+const BASE: AiProfile = { ...AI_PROFILE.hard, granary: 12 }
+const tweak = (v: string): AiProfile => ({ ...BASE, ...Object.fromEntries(v.split(',').map((kv) => [kv.split('=')[0], Number(kv.split('=')[1])])) })
 const VARIANTS: Record<string, AiProfile> = process.env.GRID
-  ? Object.fromEntries(process.env.GRID.split(' ').map((v) => [
-    v, { ...BASE, ...Object.fromEntries(v.split(',').map((kv) => [kv.split('=')[0], Number(kv.split('=')[1])])) },
-  ]))
+  ? Object.fromEntries(process.env.GRID.split(' ').map((v) => [v, tweak(v)]))
   : { 現在的強: AI_PROFILE.hard }
+/** 換一種對手來比（不給就是前一版的強）：REST=normal、REST=easy，或 REST="margin=8,attacks=1" 這樣在前一版上改 */
+const REST: AiProfile | null = !process.env.REST ? null
+  : process.env.REST in AI_PROFILE ? AI_PROFILE[process.env.REST as 'normal'] : tweak(process.env.REST)
 
 /** 1 號用 one 的打法，其他人用 rest。每個種子一局，回傳每一局 1 號有沒有贏、打了幾秒、有沒有在時限內分出勝負。 */
 function series(one: AiProfile, rest: AiProfile, players: number) {
@@ -54,6 +56,17 @@ it('duel', () => {
   for (const players of [3, 4]) {
     console.log(`\n${players} 方，各 ${GAMES} 局（同一批種子）`)
     // 1 號的位置本來就有好有壞，所以先看前一版自己坐 1 號贏幾成，新的打法坐同一個位置再比
+    if (REST) {
+      const base = series(BASE, REST, players)
+      console.log(`對手是 ${process.env.REST}。前一版坐 1 號：贏 ${pct(base.wins)}，一局中位數 ${base.median} 秒`)
+      for (const [name, prof] of Object.entries(VARIANTS)) {
+        const a = series(prof, REST, players)
+        let up = 0, down = 0
+        for (let i = 0; i < GAMES; i++) { if (a.won[i] && !base.won[i]) up++; if (!a.won[i] && base.won[i]) down++ }
+        console.log(`${name}：贏 ${pct(a.wins)}（多贏 ${up} 局、少贏 ${down} 局），一局 ${a.median} 秒`)
+      }
+      continue
+    }
     const base = series(BASE, BASE, players)
     console.log(`前一版自己打自己：1 號贏 ${pct(base.wins)}，一局中位數 ${base.median} 秒，${pct(base.decided)} 在 15 分鐘內分出勝負`)
     for (const [name, prof] of Object.entries(VARIANTS)) {

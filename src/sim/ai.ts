@@ -1,5 +1,5 @@
 // 電腦對手。跟玩家走同一條路：看得到的資訊一樣，也只能下「從哪裡派到哪裡」的指令。
-// 難度主要差在反應速度（多久想一次、一次發動幾波），其次是出手多謹慎、會不會把後方的兵往前線送。
+// 難度主要差在反應速度（多久想一次、一次發動幾波），其次是出手多謹慎、會不會把後方的兵往前線送、多看重糧倉。
 import { canSend, capOf, prodOf, sendAmount, shellLoss } from './game'
 import { type Graph, inRange, pathTo, reach } from './graph'
 import { RULES } from './rules'
@@ -19,17 +19,19 @@ export interface AiProfile {
   margin: number
   /** 後方的區兵力到上限的幾成（百分比）就往前線送；0 表示不送，也不補防 */
   reinforceAt: number
+  /** 存糧還在的糧倉值多少（一般的區是 10）。拿下來等於白賺 15 個兵，看重一點的會先去搶 */
+  granary: number
 }
 
 export const AI_PROFILE: Record<Difficulty, AiProfile> = {
-  easy: { think: 60, skip: 30, attacks: 1, margin: 5, reinforceAt: 0 },
-  normal: { think: 40, skip: 20, attacks: 1, margin: 3, reinforceAt: 100 },
-  hard: { think: 12, skip: 0, attacks: 3, margin: 1, reinforceAt: 50 },
+  easy: { think: 60, skip: 30, attacks: 1, margin: 5, reinforceAt: 0, granary: 12 },
+  normal: { think: 40, skip: 20, attacks: 1, margin: 3, reinforceAt: 100, granary: 12 },
+  hard: { think: 12, skip: 0, attacks: 3, margin: 1, reinforceAt: 50, granary: 16 },
 }
 
 export interface Order { from: number; to: number }
 
-const VALUE = { none: 10, post: 13, fort: 13, granary: 12, city: 22 } as const
+const VALUE = { none: 10, post: 13, fort: 13, city: 22 } as const
 
 /** difficulty 也可以直接給一組數值，試新打法時用（tools/duel.ts） */
 export function aiThink(
@@ -93,7 +95,8 @@ export function aiThink(
         if (sent - lost - shelled + mine[t] >= defence + prof.margin) { ok = true; break }
       }
       if (!ok) continue
-      let value: number = target.spent ? VALUE.none : VALUE[map.regions[t].trait]
+      const trait = map.regions[t].trait
+      let value: number = trait === 'granary' ? (target.spent ? VALUE.none : prof.granary) : VALUE[trait]
       if (target.owner !== 0) value += 4
       // 花的兵越少、越快到的越好；加一點亂數，幾個對手才不會想得一模一樣
       const score = Math.floor((value * 1000) / (sent + 8 + Math.floor(eta / 6))) + rng.int(40)

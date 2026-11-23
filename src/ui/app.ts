@@ -475,12 +475,17 @@ export function startApp(root: HTMLElement): void {
     }
     const news = h('div', { class: 'news' })
     const shown = new Map<number, HTMLElement>()
+    // 一則留 8 秒、最後 2 秒淡出，算的是看的人的時間：播得越快，往回看的那段時間軸就越長，不然 8× 時一則只閃 1 秒。
+    // 播得快，新的來得也快，只留 3 則的話舊的一兩秒就被擠掉，所以 4× 最多 6 則、8× 最多 9 則；
+    // 一則連間隔大約 34px，疊起來不超過圖高的三分之一（手機上放不到 9 則）
     const NEWS_TICKS = 80, NEWS_FADE = 20
     const report = () => {
       const now = replay.state.tick
+      const life = NEWS_TICKS * speed, fade = NEWS_FADE * speed
       const recent: number[] = []
-      feed.forEach((e, i) => { if (e.tick <= now && e.tick > now - NEWS_TICKS) recent.push(i) })
-      recent.splice(0, recent.length - 3)
+      feed.forEach((e, i) => { if (e.tick <= now && e.tick > now - life) recent.push(i) })
+      const most = Math.min(speed >= 8 ? 9 : speed >= 4 ? 6 : 3, Math.max(3, Math.floor(stage.clientHeight / 100)))
+      recent.splice(0, recent.length - most)
       for (const [i, el] of shown) if (!recent.includes(i)) { el.remove(); shown.delete(i) }
       for (const i of recent) {
         let el = shown.get(i)
@@ -489,7 +494,7 @@ export function startApp(root: HTMLElement): void {
           shown.set(i, el)
           news.append(el)
         }
-        el.style.opacity = String(Math.min(1, (NEWS_TICKS - (now - feed[i].tick)) / NEWS_FADE))
+        el.style.opacity = String(Math.min(1, (life - (now - feed[i].tick)) / fade))
       }
     }
     stage.append(news)

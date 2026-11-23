@@ -8,6 +8,7 @@ import { createGame, issue, step } from '../src/sim/game'
 import { buildGraph } from '../src/sim/graph'
 import { Rng } from '../src/sim/rng'
 import { pickStarts } from '../src/sim/setup'
+import { trickThink } from './trickster'
 
 const map = MAPS.taiwan1901
 const g = buildGraph(map)
@@ -15,7 +16,8 @@ const LIMIT = 9000 // 15 分鐘
 const GAMES = Number(process.env.GAMES ?? 400)
 
 /** 前一版的「強」：把這次要比的欄位改回原本的數值 */
-const BASE: AiProfile = { ...AI_PROFILE.hard, granary: 12 }
+const BASE: AiProfile = { ...AI_PROFILE.hard, careful: false }
+/** 開關類的欄位寫 careful=1、careful=0 */
 const tweak = (v: string): AiProfile => ({ ...BASE, ...Object.fromEntries(v.split(',').map((kv) => [kv.split('=')[0], Number(kv.split('=')[1])])) })
 const VARIANTS: Record<string, AiProfile> = process.env.GRID
   ? Object.fromEntries(process.env.GRID.split(' ').map((v) => [v, tweak(v)]))
@@ -23,6 +25,10 @@ const VARIANTS: Record<string, AiProfile> = process.env.GRID
 /** 換一種對手來比（不給就是前一版的強）：REST=normal、REST=easy，或 REST="margin=8,attacks=1" 這樣在前一版上改 */
 const REST: AiProfile | null = !process.env.REST ? null
   : process.env.REST in AI_PROFILE ? AI_PROFILE[process.env.REST as 'normal'] : tweak(process.env.REST)
+
+/** TRICK="4,10"：1 號換成假扮真人的對手（只剩 4 個兵以下的區拿去佯攻隔壁屯 10 個兵以上的區），看它對每一種打法贏幾成 */
+const TRICK = process.env.TRICK ? process.env.TRICK.split(',').map(Number) : null
+let trick = false
 
 /** 1 號用 one 的打法，其他人用 rest。每個種子一局，回傳每一局 1 號有沒有贏、打了幾秒、有沒有在時限內分出勝負。 */
 function series(one: AiProfile, rest: AiProfile, players: number) {
@@ -38,7 +44,8 @@ function series(one: AiProfile, rest: AiProfile, players: number) {
       for (let p = 1; p <= players; p++) {
         const prof = p === 1 ? one : rest
         if (!s.alive[p] || (s.tick + p * 7) % prof.think !== 0) continue
-        for (const o of aiThink(s, map, g, p, rngs[p], prof)) issue(s, map, g, o.from, o.to)
+        const orders = trick && p === 1 ? trickThink(s, map, g, p, rngs[p], prof, TRICK![0], TRICK![1]) : aiThink(s, map, g, p, rngs[p], prof)
+        for (const o of orders) issue(s, map, g, o.from, o.to)
       }
       step(s, map, g)
     }
@@ -55,6 +62,18 @@ const pct = (n: number) => `${((n * 100) / GAMES).toFixed(1)}%`
 it('duel', () => {
   for (const players of [3, 4]) {
     console.log(`\n${players} 方，各 ${GAMES} 局（同一批種子）`)
+    if (TRICK) {
+      const plain = series(BASE, BASE, players)
+      trick = true
+      const base = series(BASE, BASE, players)
+      console.log(`前一版坐 1 號贏 ${pct(plain.wins)}；1 號改成會佯攻的：贏 ${pct(base.wins)}，一局中位數 ${base.median} 秒`)
+      for (const [name, prof] of Object.entries(VARIANTS)) {
+        const a = series(BASE, prof, players)
+        console.log(`對手換成 ${name}：會佯攻的贏 ${pct(a.wins)}，一局 ${a.median} 秒`)
+      }
+      trick = false
+      continue
+    }
     // 1 號的位置本來就有好有壞，所以先看前一版自己坐 1 號贏幾成，新的打法坐同一個位置再比
     if (REST) {
       const base = series(BASE, REST, players)

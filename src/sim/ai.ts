@@ -1,7 +1,7 @@
 // 電腦對手。跟玩家走同一條路：看得到的資訊一樣，也只能下「從哪裡派到哪裡」的指令。
-// 難度主要差在反應速度（多久想一次、一次發動幾波），其次是出手多謹慎、會不會把後方的兵往前線送、多看重糧倉。
+// 難度主要差在反應速度（多久想一次、一次發動幾波），其次是出手多謹慎、會不會把後方的兵往前線送、多看重糧倉、會不會顧家。
 import { canSend, capOf, prodOf, sendAmount, shellLoss } from './game'
-import { type Graph, inRange, pathTo, reach } from './graph'
+import { type Graph, inRange, legTicks, pathTo, reach } from './graph'
 import { RULES } from './rules'
 import type { Rng } from './rng'
 import type { GameState, MapData, PlayerId } from './types'
@@ -21,17 +21,26 @@ export interface AiProfile {
   reinforceAt: number
   /** 存糧還在的糧倉值多少（一般的區是 10）。拿下來等於白賺 15 個兵，看重一點的會先去搶 */
   granary: number
+  /**
+   * 會不會顧家。派兵是整區派光，所以：
+   * 出兵前先看隔壁別家屯的兵，走過來會不會比這段時間新長的兵多（多就是一出門家就被撿走），會的話不出門，
+   * 除非要打的就是那一家、或要打的地方比自己這一區值錢；
+   * 別的區被打，前線的區也只在它真的守不住、自己出門又不會被撿走時才去救，不會一窩蜂全跑去。
+   */
+  careful: boolean
 }
 
 export const AI_PROFILE: Record<Difficulty, AiProfile> = {
-  easy: { think: 60, skip: 30, attacks: 1, margin: 5, reinforceAt: 0, granary: 12 },
-  normal: { think: 40, skip: 20, attacks: 1, margin: 3, reinforceAt: 100, granary: 12 },
-  hard: { think: 12, skip: 0, attacks: 3, margin: 1, reinforceAt: 50, granary: 16 },
+  easy: { think: 60, skip: 30, attacks: 1, margin: 5, reinforceAt: 0, granary: 12, careful: false },
+  normal: { think: 40, skip: 20, attacks: 1, margin: 3, reinforceAt: 100, granary: 12, careful: false },
+  hard: { think: 12, skip: 0, attacks: 3, margin: 1, reinforceAt: 50, granary: 16, careful: true },
 }
 
 export interface Order { from: number; to: number }
 
 const VALUE = { none: 10, post: 13, fort: 13, city: 22 } as const
+/** 一區本身值多少（糧倉的存糧不算，那是打下來才領的） */
+const worth = (map: MapData, r: number): number => { const t = map.regions[r].trait; return t === 'granary' ? VALUE.none : VALUE[t] }
 
 /** difficulty 也可以直接給一組數值，試新打法時用（tools/duel.ts） */
 export function aiThink(
@@ -45,12 +54,29 @@ export function aiThink(
   // 已經在路上的兵：我方要去打的、敵方要來打我的
   const mine = new Array<number>(n).fill(0)
   const hostile = new Array<number>(n).fill(0)
+  /** 來打這一區的敵軍，最快的還要幾拍到（已經在圍城就是 0） */
+  const arrive = new Array<number>(n).fill(Infinity)
   for (const a of state.armies) {
     // 軍隊會停在路上第一個不是自己的區，不一定走得到終點
-    let dest = a.path[a.path.length - 1]
-    for (let i = a.leg + 1; i < a.path.length; i++) if (state.regions[a.path[i]].owner !== a.owner) { dest = a.path[i]; break }
+    let stop = a.path.length - 1
+    for (let i = a.leg + 1; i < a.path.length; i++) if (state.regions[a.path[i]].owner !== a.owner) { stop = i; break }
+    const dest = a.path[stop]
     if (a.owner === me) mine[dest] += a.units
-    else if (state.regions[dest].owner === me) hostile[dest] += a.units
+    else if (state.regions[dest].owner === me) {
+      hostile[dest] += a.units
+      let eta = a.siege ? 0 : a.legTicks - a.t
+      for (let i = a.leg + 1; i < stop; i++) eta += legTicks(g, a.path[i], a.path[i + 1], a.fast)
+      arrive[dest] = Math.min(arrive[dest], eta)
+    }
+  }
+  /** 這一區的兵全派出去以後會不會被撿走：隔壁別家屯的兵，比它走過來這段時間這一區新長的兵還多。except 是正要去打的那一區 */
+  const exposed = (s: number, except: number): boolean => {
+    for (const l of g.links[s]) {
+      const o = state.regions[l.to]
+      if (o.owner === me || o.owner === 0 || l.to === except) continue
+      if (o.units > Math.floor((prodOf(map, s) * l.ticks) / 1000)) return true
+    }
+    return false
   }
 
   let sources: number[] = []
@@ -70,6 +96,7 @@ export function aiThink(
       const near = sources
         .map((s) => ({ s, eta: reaches.get(s)!.dist[t] }))
         .filter((c) => c.eta < Infinity)
+        .filter((c) => !prof.careful || !exposed(c.s, t) || worth(map, t) > worth(map, c.s))
         .sort((a, b) => a.eta - b.eta || a.s - b.s)
       if (!near.length) continue
       // 圍城時還在幾座別人砲台的射程裡（打砲台本身，或緊鄰砲台的區）
@@ -113,15 +140,19 @@ export function aiThink(
     const frontier: { r: number; need: number }[] = []
     for (let i = 0; i < n; i++) {
       if (state.regions[i].owner !== me) continue
-      let threat = 0, exposed = false
+      let threat = 0, front = false
       for (const l of g.links[i]) {
         const o = state.regions[l.to]
         if (o.owner === me) continue
-        exposed = true
+        front = true
         if (o.owner !== 0) threat = Math.max(threat, o.units)
       }
-      if (!exposed) continue
-      frontier.push({ r: i, need: hostile[i] * 2 + threat - state.regions[i].units - mine[i] })
+      if (!front) continue
+      if (prof.careful && hostile[i] > 0) {
+        // 正在被打的區缺多少算多少：自己的兵、已經在路上的援軍、對方走到加上圍城這段時間新長的兵，都先扣掉
+        const held = Math.min(capOf(map, i), state.regions[i].units + Math.floor((prodOf(map, i) * (arrive[i] + hostile[i])) / 1000))
+        frontier.push({ r: i, need: hostile[i] + 1 - held - mine[i] })
+      } else frontier.push({ r: i, need: hostile[i] * 2 + threat - state.regions[i].units - mine[i] })
     }
     for (const s of sources) {
       const src = state.regions[s]
@@ -134,6 +165,7 @@ export function aiThink(
         const eta = reaches.get(s)!.dist[f.r]
         if (eta === Infinity) continue
         if (!interior && hostile[f.r] <= state.regions[f.r].units) continue
+        if (!interior && prof.careful && (f.need <= 0 || exposed(s, -1))) continue
         const score = f.need * 10 - Math.floor(eta / 4)
         if (score > pickScore) { pickScore = score; pick = f.r }
       }

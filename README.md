@@ -22,7 +22,7 @@ npm test           # 規則與重播的測試
 npm run build      # 型別檢查＋產生 dist/
 npm run build:map  # 由鄉鎮界重新產生地圖資料
 npm run balance    # 讓電腦互打幾百局，印出各難度的勝率（調數值用）
-npm run duel       # 改電腦的打法時：讓新的「強」跟前一版對打，看有沒有變強、一局有沒有被拖長
+npm run duel       # 改電腦的打法時：讓新的「強」跟前一版對打，看有沒有變強、一局有沒有被拖長（TRICK="6,10" 換成會佯攻的對手）
 npm run starts     # 每個起點各打一批，印出從哪裡開局比較吃香
 npm run freeze     # 改規則之前：把現行的規則引擎凍結起來，舊記錄才能繼續重播
 npm run freeze:map # 改地圖之前：把現行的地圖留一份，理由一樣

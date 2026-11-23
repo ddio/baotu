@@ -113,10 +113,14 @@ export function startApp(root: HTMLElement): void {
     const code = linkCode()
     if (code !== null && code !== linked) location.reload()
   })
-  /** 「分享開局」的按鈕和它底下的一行回應。say 是跟網址一起送出去的話。 */
-  const shareOpening = (config: MatchConfig, say: string): [HTMLButtonElement, HTMLElement] => {
+  /**
+   * 「分享開局」的按鈕和按完的回應。say 是跟網址一起送出去的話。
+   * next：回應後面要接的按鈕（接下來可以做什麼），close 是把回應收起來。
+   */
+  const shareOpening = (config: MatchConfig, say: string, next?: (close: () => void) => HTMLElement): [HTMLButtonElement, HTMLElement] => {
     const url = `${location.origin}${location.pathname}#g=${encodeOpening(openingOf(map, config))}`
     const status = h('p', { class: 'lead shared', role: 'status' })
+    const reply = (...kids: (Node | string)[]) => status.replaceChildren(...kids, next ? next(() => status.replaceChildren()) : '')
     const button = h('button', { onclick: async () => {
       trackShare('send')
       // 手機：交給系統的分享選單
@@ -125,13 +129,19 @@ export function startApp(root: HTMLElement): void {
           if ((e as Error).name === 'AbortError') return
         }
       }
+      // 剪貼簿有時候既不成功也不失敗（不是使用者親手按的時候看過，一直沒回應），等 1.5 秒沒下文就當作不能用，不然按了什麼反應都沒有
+      let copied = false
       try {
-        await navigator.clipboard.writeText(url)
-        status.replaceChildren('網址複製好了。貼給別人，打開就是同一個開局。')
-      } catch {
+        copied = await Promise.race([
+          navigator.clipboard.writeText(url).then(() => true),
+          new Promise<boolean>((done) => setTimeout(() => done(false), 1500)),
+        ])
+      } catch { /* 剪貼簿不能用 */ }
+      if (copied) reply(h('strong', {}, '網址複製好了。'), '貼給別人，打開就是同一個開局。')
+      else {
         // 連剪貼簿都不能用：把網址擺出來讓人自己複製
         const field = h('input', { class: 'link', readonly: true, value: url, 'aria-label': '這個開局的網址', onfocus: () => field.select() })
-        status.replaceChildren('複製這個網址給別人：', field)
+        reply('複製這個網址給別人：', field)
         field.focus()
       }
     } }, '分享開局')
@@ -498,7 +508,7 @@ export function startApp(root: HTMLElement): void {
       }
     }
     stage.append(news)
-    enter(() => { ac.abort(); cancelAnimationFrame(raf); news.remove(); view.useRules(CURRENT.view); useMap(map) })
+    enter(() => { ac.abort(); cancelAnimationFrame(raf); news.remove(); stage.querySelector('.shared')?.remove(); view.useRules(CURRENT.view); useMap(map) })
     useMap(replay.map)
     view.useRules(replay.engine.view)
 
@@ -508,10 +518,16 @@ export function startApp(root: HTMLElement): void {
     // 分享這一局的開局。網址帶的是現在這張地圖的版本，改版前的地圖開不出同一局，就不給分享
     const took = clock(total / TICKS_PER_SECOND)
     const setup = `從${startName}廳起家，對 ${rec.config.players - 1} 家，難度${DIFFICULTY[rec.config.difficulty]}`
+    // 按完的回應浮在圖的右上角，就在按鈕底下（放在最底下的說明列沒人看得到），並接上下一步：自己照這個開局打一局
+    const again = openingConfig(map, openingOf(map, rec.config))
     const [share, shared] = oldMap ? [] : shareOpening(rec.config, rec.config.human
       ? `我在「堡圖」${setup}，${rec.result === 'win' ? `${took} 拿下全島` : rec.result === 'lose' ? `撐了 ${took}` : `打了 ${took}`}。同一個開局，換你試試。`
-      : `「堡圖」的一個開局：${setup}。`)
+      : `「堡圖」的一個開局：${setup}。`,
+    (close) => h('span', { class: 'acts' },
+      again ? h('button', { class: 'small', onclick: () => showStart(again.starts[0], again) }, '我也打這個開局') : '',
+      h('button', { class: 'small', onclick: close }, '關掉')))
     if (share) share.className = 'small'
+    if (shared) stage.append(shared)
     bar.replaceChildren(forces.el, share ?? '', h('button', { class: 'small', onclick: () => showRecords() }, '離開重播'))
     const toggle = h('button', { class: 'small', onclick: () => {
       if (replay.done) replay.seek(0)
@@ -524,7 +540,7 @@ export function startApp(root: HTMLElement): void {
     slider.addEventListener('input', () => { playing = false; replay.seek(Number(slider.value)); acc = 0; sync() })
     const then = [old ? `規則 v${rec.rulesVersion}` : '', oldMap ? '改版前的地圖' : ''].filter(Boolean).join('、')
     panel.replaceChildren(
-      h('div', { class: 'body' }, `${when(rec)}　從${startName}廳起家，${RESULT[rec.result]}。${then ? `當時是${then}，跟現在的玩法說明不完全一樣。` : ''}${replay.faithful ? '' : '這筆記錄重跑出來的結果和當時不一樣。'}`, shared ?? ''),
+      h('div', { class: 'body' }, `${when(rec)}　從${startName}廳起家，${RESULT[rec.result]}。${then ? `當時是${then}，跟現在的玩法說明不完全一樣。` : ''}${replay.faithful ? '' : '這筆記錄重跑出來的結果和當時不一樣。'}`),
       h('div', { class: 'row' }, toggle, speedBtn, slider, time))
     const sync = () => {
       toggle.textContent = playing && !replay.done ? '暫停' : replay.done ? '從頭播' : '播放'

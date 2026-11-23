@@ -180,8 +180,6 @@ button.danger { border-color: var(--seal); color: var(--seal); }
 .panel { border-top: 1.5px solid var(--ink); padding: 8px 12px 10px; min-height: 104px; display: flex; flex-direction: column; gap: 6px; justify-content: center; }
 .panel .head { font-weight: 700; font-size: 1.0625rem; line-height: 1.35; }
 .panel .body { font-size: 0.9375rem; color: var(--ink-soft); line-height: 1.45; min-height: 2.9em; }
-/* 重播時「分享開局」的回應，接在那一局的說明底下 */
-.panel .shared { margin: 0; color: var(--ink); }
 .panel .row { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
 .panel .go { margin-left: auto; min-width: 96px; }
 .panel label, .panel .field { display: inline-flex; align-items: center; gap: 6px; font-size: 0.9375rem; }
@@ -222,6 +220,13 @@ button.danger { border-color: var(--seal); color: var(--seal); }
 /* 「分享開局」按完的回應；還沒按就不佔位置 */
 .shared:empty { display: none; }
 .slip .shared { margin-top: 10px; }
+/* 重播時的回應：浮在圖的右上角，就在「分享開局」底下 */
+.stage > .shared { position: absolute; top: 14px; right: 14px; z-index: 3; width: max-content; max-width: min(300px, calc(100% - 28px)); margin: 0; padding: 10px 12px; background: var(--paper); border: 1.5px solid var(--ink); color: var(--ink); font-size: 0.9375rem; line-height: 1.5; animation: shared-in 0.22s ease-out; }
+/* 要擺網址出來的時候撐到最寬，網址才看得到多一點 */
+.stage > .shared:has(.link) { width: 300px; }
+.shared strong { display: block; font-size: 1.0625rem; }
+.shared .acts { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+@keyframes shared-in { from { transform: translateY(-8px); opacity: 0; } }
 .shared .link { display: block; width: 100%; margin-top: 4px; padding: 8px; font: inherit; font-size: 0.875rem; color: var(--ink); background: transparent; border: 1px solid var(--ink); border-radius: 2px; }
 
 /* 走勢圖 */
@@ -258,4 +263,4 @@ button.danger { border-color: var(--seal); color: var(--seal); }
 .news .toll { margin-left: 2px; opacity: 1; white-space: nowrap; }
 .news > .lost svg path { stroke: var(--paper) !important; }
 @keyframes news-in { from { transform: translateY(8px); } }
-@media (prefers-reduced-motion: reduce) { .news > div { animation: none; } }
+@media (prefers-reduced-motion: reduce) { .news > div, .stage > .shared { animation: none; } }

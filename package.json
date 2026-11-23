@@ -11,7 +11,9 @@
     "preview": "vite preview",
     "test": "vitest run",
     "build:map": "node tools/build-map.mjs",
-    "balance": "BALANCE=1 vitest run --disableConsoleIntercept",
+    "balance": "TOOL=balance vitest run --disableConsoleIntercept",
+    "duel": "TOOL=duel vitest run --disableConsoleIntercept",
+    "starts": "TOOL=starts vitest run --disableConsoleIntercept",
     "freeze": "node tools/freeze.mjs",
     "freeze:map": "node tools/freeze-map.mjs",
     "fixture": "FIXTURE=1 vitest run tests/engines.test.ts"

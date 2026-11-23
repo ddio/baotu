@@ -8,7 +8,7 @@ import type { GameState, MapData, PlayerId } from './types'
 
 export type Difficulty = 'easy' | 'normal' | 'hard'
 
-export const AI_PROFILE: Record<Difficulty, {
+export interface AiProfile {
   /** 每隔幾拍想一次 */
   think: number
   /** 這次乾脆不動的機率（百分比） */
@@ -19,7 +19,9 @@ export const AI_PROFILE: Record<Difficulty, {
   margin: number
   /** 後方的區兵力到上限的幾成（百分比）就往前線送；0 表示不送，也不補防 */
   reinforceAt: number
-}> = {
+}
+
+export const AI_PROFILE: Record<Difficulty, AiProfile> = {
   easy: { think: 60, skip: 30, attacks: 1, margin: 5, reinforceAt: 0 },
   normal: { think: 40, skip: 20, attacks: 1, margin: 3, reinforceAt: 100 },
   hard: { think: 12, skip: 0, attacks: 3, margin: 1, reinforceAt: 50 },
@@ -29,10 +31,11 @@ export interface Order { from: number; to: number }
 
 const VALUE = { none: 10, post: 13, fort: 13, granary: 12, city: 22 } as const
 
+/** difficulty 也可以直接給一組數值，試新打法時用（tools/duel.ts） */
 export function aiThink(
-  state: GameState, map: MapData, g: Graph, me: PlayerId, rng: Rng, difficulty: Difficulty,
+  state: GameState, map: MapData, g: Graph, me: PlayerId, rng: Rng, difficulty: Difficulty | AiProfile,
 ): Order[] {
-  const prof = AI_PROFILE[difficulty]
+  const prof = typeof difficulty === 'string' ? AI_PROFILE[difficulty] : difficulty
   if (rng.int(100) < prof.skip) return []
   const n = g.n
   const orders: Order[] = []

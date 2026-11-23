@@ -5,7 +5,7 @@ const W = (s) => s.split(/\s+/).filter(Boolean)
 export const MAP_ID = 'taiwan1901'
 export const MAP_NAME = '臺灣二十廳（1901）'
 // 改這個檔之前先 npm run freeze:map 把現在這一版留下來，改完版本加一
-export const MAP_VERSION = 2
+export const MAP_VERSION = 3
 
 // 每區：id、名稱、今天大致是哪裡、特色、據點經緯度（約在廳治，太擠的地方挪開）
 // towns：{ 縣市: [鄉鎮…] }，'*' 表示該縣市沒有被別區點名的其餘鄉鎮
@@ -66,6 +66,26 @@ export const SEA = [
 export const ROUGH = [
   { ends: ['penghu', 'taipei'], via: [[120.2, 24.0], [120.47, 24.45], [120.78, 24.85], [121.05, 25.12], [121.36, 25.2]] },
 ]
+// 轉彎的路：兩個據點的直線會從第三個據點旁邊擦過去的，改成繞開。
+// 軍隊在圖上靠近就會打起來（RULES.clashRange），直線擦過別人的城門口，路過的會跟在那裡圍城、進城的打起來。
+// via 的寫法跟險航線一樣。行軍時間仍然照兩個據點的直線距離算，繞路只改走在圖上的哪裡。
+export const BEND = [
+  // 新竹—臺中的山路：直線從苗栗城外 14 單位穿過去。改走內山（今天的五峰、泰安一帶），從苗栗東邊繞
+  { ends: ['hsinchu', 'taichung'], via: [[121.13, 24.46]] },
+  // 基隆—宜蘭：直線擦過深坑。改沿東北角海岸（貢寮、頭城）走
+  { ends: ['keelung', 'yilan'], via: [[121.86, 25.0], [121.8, 24.76]] },
+  // 嘉義—臺南：直線擦過鹽水港。改走東邊的山腳（大埔、玉井一帶）
+  { ends: ['chiayi', 'tainan'], via: [[120.51, 23.2]] },
+  // 鳳山—澎湖的航線：直線擦過臺南。改從外海繞
+  { ends: ['fengshan', 'penghu'], via: [[120.0, 22.95]] },
+  // 下面四條離別的據點本身夠遠，但會擦到在那個據點城外紮營的軍隊（城外是離據點 28 單位的地方），所以只彎一點點
+  { ends: ['tainan', 'penghu'], via: [[119.95, 23.2]] },
+  { ends: ['nantou', 'chiayi'], via: [[120.78, 23.64]] },
+  { ends: ['shenkeng', 'taoyuan'], via: [[121.45, 24.87]] },
+  { ends: ['yilan', 'taoyuan'], via: [[121.47, 24.74]] },
+]
+// 產生地圖時檢查：連線離別的據點比這個數近就列出來（遭遇的距離是 36）
+export const CLEAR = 45
 
 // 畫面：澎湖往本島靠近（經度），好讓直式手機放得下
 export const SHIFT = { penghu: [0.25, 0] }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { loadMap, MAPS } from '../src/maps'
-import { buildGraph, inRange } from '../src/sim/graph'
+import { buildGraph, gateTick, inRange, legTicks, posOf } from '../src/sim/graph'
 import { RULES } from '../src/sim/rules'
 
 const map = MAPS.taiwan1901
@@ -91,8 +91,55 @@ describe('臺灣二十廳地圖', () => {
       // 比遭遇的距離（36）遠得多：路過的船不會跟岸上的軍隊打起來
       map.regions.forEach((r, i) => { if (i !== e.a && i !== e.b) expect(Math.hypot(r.x - x, r.y - y)).toBeGreaterThan(60) })
     }
-    // 其他的連線都是直的
-    expect(map.edges.filter((x) => x.via)).toEqual([e])
+  })
+
+  const lineOf = (e: (typeof map.edges)[number]) => [[map.regions[e.a].x, map.regions[e.a].y], ...(e.via ?? []), [map.regions[e.b].x, map.regions[e.b].y]]
+  /** 一個點離一條折線多遠 */
+  const away = (x: number, y: number, pts: number[][]) => {
+    let best = Infinity
+    for (let i = 1; i < pts.length; i++) {
+      const [ax, ay] = pts[i - 1], dx = pts[i][0] - ax, dy = pts[i][1] - ay
+      const t = Math.max(0, Math.min(1, ((x - ax) * dx + (y - ay) * dy) / (dx * dx + dy * dy || 1)))
+      best = Math.min(best, Math.hypot(ax + t * dx - x, ay + t * dy - y))
+    }
+    return best
+  }
+
+  it('繞開第三個據點的路有八條，其他的陸路和航線都是直的', () => {
+    const bent = map.edges.filter((e) => e.via && e.kind !== 'rough').map((e) => `${map.regions[e.a].name}—${map.regions[e.b].name}`)
+    expect(bent.sort()).toEqual(['基隆—宜蘭', '新竹—臺中', '嘉義—臺南', '鳳山—澎湖', '臺南—澎湖', '南投—嘉義', '深坑—桃仔園', '宜蘭—桃仔園'].sort())
+  })
+
+  it('每條連線都不從別的據點旁邊擦過去，也碰不到在那裡城外紮營的軍隊', () => {
+    const g = buildGraph(map)
+    // 每個據點城外會有軍隊停下來的位置：每一條通往它的路上、離它 RULES.gate 的地方（驛站出發的走得快，停的那一拍不一樣）
+    const camps: { at: number; x: number; y: number }[] = []
+    map.regions.forEach((_, to) => {
+      for (const l of g.links[to]) for (const fast of [false, true]) {
+        const T = legTicks(g, l.to, to, fast)
+        const [x, y] = posOf(g, l.to, to, gateTick(g, l.to, to, T), T)
+        camps.push({ at: to, x: x / 10, y: y / 10 })
+      }
+    })
+    for (const e of map.edges) {
+      const pts = lineOf(e)
+      map.regions.forEach((r, i) => { if (i !== e.a && i !== e.b) expect(away(r.x, r.y, pts)).toBeGreaterThan(45) })
+      for (const c of camps) if (c.at !== e.a && c.at !== e.b) expect(away(c.x, c.y, pts)).toBeGreaterThan(RULES.clashRange)
+    }
+  })
+
+  it('繞路只改走在圖上的哪裡：每條連線的行軍時間跟上一版地圖一樣', async () => {
+    const old = buildGraph((await loadMap(map.id, 2))!), now = buildGraph(map)
+    expect(now.links.map((ls) => ls.map((l) => [l.to, l.ticks, l.kind]))).toEqual(old.links.map((ls) => ls.map((l) => [l.to, l.ticks, l.kind])))
+    // 畫出來的線比直線長，但不會長太多（走起來不會快得不像話）
+    for (const e of map.edges) if (e.via && e.kind !== 'rough') {
+      const pts = lineOf(e)
+      let len = 0
+      for (let i = 1; i < pts.length; i++) len += Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])
+      const straight = Math.hypot(pts[0][0] - pts[pts.length - 1][0], pts[0][1] - pts[pts.length - 1][1])
+      expect(len / straight).toBeGreaterThan(1)
+      expect(len / straight).toBeLessThan(1.3)
+    }
   })
 
   it('翻越中央山脈的都是山路，西部平原的不是', () => {

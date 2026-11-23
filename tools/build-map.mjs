@@ -123,6 +123,45 @@ const landAt = (p) => C.REGIONS.findIndex((r, i) => {
   const [sx, sy] = C.SHIFT[r.id] ?? [0, 0]
   return merge(topo, members[i]).coordinates.some((poly) => pointInRing([p[0] - sx, p[1] - sy], poly[0]))
 })
+// 一條線（投影後的點）離兩頭以外的據點最近多遠
+const tightest = (line, from, to) => {
+  let tight = Infinity, at = ''
+  regions.forEach((r, j) => {
+    if (j === from || j === to) return
+    for (let i = 1; i < line.length; i++) {
+      const [ax, ay] = line[i - 1], dx = line[i][0] - ax, dy = line[i][1] - ay
+      const t = Math.max(0, Math.min(1, ((r.x - ax) * dx + (r.y - ay) * dy) / (dx * dx + dy * dy || 1)))
+      const d = Math.hypot(ax + t * dx - r.x, ay + t * dy - r.y)
+      if (d < tight) { tight = d; at = r.name }
+    }
+  })
+  return [tight, at]
+}
+
+// ---- 轉彎的路：繞開第三個據點，公里數（行軍時間）不變 ----
+const bendReport = []
+for (const { ends: [p, q], via } of C.BEND) {
+  const from = idx[p], to = idx[q]
+  const e = edges.find((x) => (x.a === from && x.b === to) || (x.a === to && x.b === from))
+  if (!e) throw new Error(`要轉彎的 ${p}—${q} 不是一條連線`)
+  const [was, wasAt] = tightest([[regions[from].x, regions[from].y], [regions[to].x, regions[to].y]], from, to)
+  const drawn = smooth([shifted(from), ...via, shifted(to)])
+  const line = drawn.map((pt) => project(pt))
+  let len = 0
+  for (let i = 1; i < line.length; i++) len += Math.hypot(line[i][0] - line[i - 1][0], line[i][1] - line[i - 1][1])
+  const straight = Math.hypot(regions[to].x - regions[from].x, regions[to].y - regions[from].y)
+  // 陸路該走在陸地上，航線除了兩頭不該壓到陸地
+  let off = 0
+  for (const pt of drawn) {
+    const hit = landAt(pt)
+    if (e.kind === 'sea' ? hit >= 0 && hit !== from && hit !== to : hit < 0) off++
+  }
+  const [tight, tightAt] = tightest(line, from, to)
+  bendReport.push(`${C.REGIONS[from].name}—${C.REGIONS[to].name}：離別的據點最近 ${was.toFixed(0)}（${wasAt}）→ ${tight.toFixed(0)}（${tightAt}），畫出來比直線長 ${Math.round((len / straight - 1) * 100)}%，${e.kind === 'sea' ? '壓到陸地' : '走到海上'}的點 ${off} 個`)
+  const mid = line.slice(1, -1)
+  e.via = e.a === from ? mid : mid.reverse()
+}
+
 const roughReport = []
 for (const { ends: [p, q], via } of C.ROUGH) {
   const from = idx[p], to = idx[q]
@@ -158,6 +197,12 @@ writeFileSync(file, JSON.stringify(out) + '\n')
 const count = (k) => edges.filter((e) => e.kind === k).length
 console.log(`${regions.length} 區，連線 ${edges.length}（一般 ${count('land')}、山路 ${count('mountain')}、航線 ${count('sea')}、險航線 ${count('rough')}），畫布 ${WIDTH}×${C.HEIGHT}`)
 for (const line of roughReport) console.log('險航線 ' + line)
+for (const line of bendReport) console.log('轉彎 ' + line)
+// 還有哪些連線從別的據點旁邊擦過去（比遭遇的距離近）
+for (const e of edges) {
+  const [d, at] = tightest([[regions[e.a].x, regions[e.a].y], ...(e.via ?? []), [regions[e.b].x, regions[e.b].y]], e.a, e.b)
+  if (d < C.CLEAR) console.log(`太近 ${regions[e.a].name}—${regions[e.b].name}（${e.kind}）離 ${at} 只有 ${d.toFixed(1)}`)
+}
 let min = Infinity, minPair = ''
 for (let a = 0; a < regions.length; a++) for (let b = a + 1; b < regions.length; b++) {
   const d = Math.hypot(regions[a].x - regions[b].x, regions[a].y - regions[b].y)

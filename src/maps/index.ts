@@ -13,6 +13,7 @@ export const DEFAULT_MAP = 'taiwan1901'
  */
 const OLD: Record<string, () => Promise<{ default: unknown }>> = {
   'taiwan1901@1': () => import('./old/taiwan1901.v1.json'),
+  'taiwan1901@2': () => import('./old/taiwan1901.v2.json'),
   // freeze-map:insert（npm run freeze:map 會在這一行上面加一筆，不要改這行）
 }
 const key = (id: string, version: number) => `${id}@${version}`
